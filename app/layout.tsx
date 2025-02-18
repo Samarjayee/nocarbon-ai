@@ -6,9 +6,12 @@ import { ThemeProvider } from '@/components/theme-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://chat.vercel.ai'),
-  title: 'Next.js Chatbot Template',
-  description: 'Next.js chatbot template using the AI SDK.',
+  metadataBase: new URL('https://ai.nocarbon.uk'),
+  title: 'A sustainable AI chatbot',
+  description: 'A sustainable AI chatbot who can file your compliance reports',
+  icons: {
+    icon: '/favicon.svg', // Add this line to specify the new favicon
+  }
 };
 
 export const viewport = {
