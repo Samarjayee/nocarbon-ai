@@ -1,6 +1,7 @@
 {
   "name": "ai-chatbot",
   "version": "0.1.0",
+  "packageManager": "pnpm@8.15.1",
   "private": true,
   "scripts": {
     "dev": "next dev --turbo",
