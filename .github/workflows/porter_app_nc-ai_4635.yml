@@ -9,11 +9,26 @@ jobs:
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
+              
+            # Add Node.js setup
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                node-version: '20.12.2'
+                
+            # Add PNPM setup
+            - name: Setup PNPM
+              uses: pnpm/action-setup@v2
+              with:
+                version: '8.15.1'
+                
             - name: Set Github tag
               id: vars
               run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+              
             - name: Setup porter
               uses: porter-dev/setup-porter@v0.1.0
+              
             - name: Deploy stack
               timeout-minutes: 30
               run: exec porter apply
