@@ -6,15 +6,11 @@ frontend:
         - nvm install 18
         - nvm use 18
         - npm install -g pnpm
-        - pnpm --version
-        - which pnpm
         - pnpm install --frozen-lockfile
     build:
       commands:
         - export PATH="\$PATH:\$(npm config get prefix)/bin"
-        - which pnpm
         - pnpm --version
-        - echo \$PATH
         - pnpm run build
   artifacts:
     baseDirectory: .next
