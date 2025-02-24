@@ -3,13 +3,13 @@ frontend:
   phases:
     preBuild:
       commands:
-        - nvm install 18  # Node 18 for Next.js 15
+        - nvm install 18
         - nvm use 18
         - npm install -g pnpm
-        - pnpm install --dev  # Include devDependencies like tsx
+        - pnpm install --dev --frozen-lockfile --prefer-offline
     build:
       commands:
-        - pnpm run build  # Runs "tsx lib/db/migrate && next build"
+        - pnpm run build
   artifacts:
     baseDirectory: .next
     files:
