@@ -3,30 +3,15 @@ frontend:
   phases:
     preBuild:
       commands:
-        - echo "Node version: \$(node -v)"
-        - echo "NPM version: \$(npm -v)"
         - nvm install 18
         - nvm use 18
-        - echo "Node version after nvm use: \$(node -v)"
         - npm install -g pnpm
-        - echo "PNPM global version: \$(pnpm -v)"
         - npm install pnpm --save-dev
-        - echo "Installed PNPM version: \$(npx pnpm -v)"
-        - echo "Current directory: \$(pwd)"
-        - echo "Directory contents: \$(ls -la)"
-        - echo "Installing dependencies..."
         - npx pnpm install --frozen-lockfile
-        - echo "Dependencies installed"
     build:
       commands:
-        - echo "Starting build phase"
-        - export PATH="\$PATH:./node_modules/.bin"
-        - echo "Updated PATH: \$PATH"
-        - echo "PNPM version: \$(pnpm --version)"
-        - echo "Node modules contents: \$(ls -la node_modules)"
-        - echo "Running build command..."
-        - pnpm run build
-        - echo "Build command completed"
+        - npx pnpm --version
+        - npx pnpm run build
   artifacts:
     baseDirectory: .next
     files:
