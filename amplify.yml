@@ -6,8 +6,8 @@ frontend:
         - nvm install 18
         - nvm use 18
         - corepack enable
-        - corepack use pnpm@$(pnpm -v)
-        - pnpm install --frozen-lockfile --strict-peer-dependencies=false
+        - corepack use pnpm@latest
+        - pnpm install --no-frozen-lockfile
     build:
       commands:
         - pnpm --version
