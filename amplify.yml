@@ -6,12 +6,11 @@ frontend:
         - nvm install 18
         - nvm use 18
         - npm install -g pnpm
-        - npm install pnpm --save-dev
-        - npx pnpm install --frozen-lockfile
+        - pnpm install --frozen-lockfile --legacy-peer-deps
     build:
       commands:
-        - npx pnpm --version
-        - npx pnpm run build
+        - pnpm --version
+        - pnpm run build
   artifacts:
     baseDirectory: .next
     files:
