@@ -6,9 +6,13 @@ frontend:
         - nvm install 18
         - nvm use 18
         - npm install -g pnpm
-        - pnpm install --dev --frozen-lockfile --prefer-offline
+        - pnpm --version
+        - which pnpm
+        - pnpm install --frozen-lockfile
+        - export PATH="\$PATH:./node_modules/.bin"
     build:
       commands:
+        - echo \$PATH
         - pnpm run build
   artifacts:
     baseDirectory: .next
@@ -17,4 +21,5 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
+      - .pnpm-store/**/*
       - .next/cache/**/*
