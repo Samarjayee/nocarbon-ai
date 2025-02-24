@@ -1,0 +1,109 @@
+service: carbon-assistant
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9  
+  region: us-east-1  
+  environment: 
+    TABLE_NAME: carbon-assistant-data
+    BUCKET_NAME: carbon-assistant-documents-ncai-98320
+    QUEUE_URL: 
+    CARBON_API_BASE_URL: https://api.carbonintensity.org.uk
+    # API_KEY:  your_api_key  
+
+  iamRoleStatements: 
+    - Effect: "Allow"
+      Action:
+        - "textract:DetectDocumentText"
+      Resource: "*"
+    - Effect: "Allow"
+      Action:
+        - "bedrock:InvokeModel"
+      Resource: "*"
+    - Effect: "Allow"
+      Action:
+        - "dynamodb:PutItem"
+      Resource: "arn:aws:dynamodb:YOUR_REGION:YOUR_ACCOUNT_ID:table/carbon-assistant-data"
+    - Effect: "Allow"
+      Action:
+        - "s3:PutObject"
+      Resource: "arn:aws:s3:::carbon-assistant-documents-ncai-98320/bills/*"  
+    - Effect: "Allow"
+      Action:
+        - "logs:CreateLogGroup"
+      Resource: "*"
+    - Effect: "Allow"
+      Action:
+        - "logs:CreateLogStream"
+      Resource: "*"
+    - Effect: "Allow"
+      Action:
+        - "logs:PutLogEvents"
+      Resource: "*"
+    - Effect: "Allow"
+      Action:
+        - "lambda:InvokeFunction"  
+      Resource: "*"  
+    - Effect: "Allow"
+      Action:
+        - "sqs:SendMessage"  
+      Resource: "arn:aws:sqs:YOUR_REGION:YOUR_ACCOUNT_ID:carbon-bedrock-queue"
+    - Effect: "Allow"
+      Action:
+        - "sqs:ReceiveMessage"  
+      Resource: "arn:aws:sqs:YOUR_REGION:YOUR_ACCOUNT_ID:carbon-bedrock-queue" 
+    - Effect: "Allow"
+      Action:
+        - "sqs:DeleteMessage"  # For queue processor
+      Resource: "arn:aws:sqs:YOUR_REGION:YOUR_ACCOUNT_ID:carbon-bedrock-queue" 
+
+functions:  # <-- Define your Lambda functions
+  ocrAgent:
+    handler: carbon_orc_agent.lambda_handler
+    memorySize: 512  
+    timeout: 60 
+    # environment:
+
+  calculationAgent:
+    handler: carbon_calculation_agent.lambda_handler
+    memorySize: 256
+    timeout: 30
+    # environment:
+    #   ...
+
+  mainAgent:
+    handler: carbon_main_agent.lambda_handler
+    memorySize: 512
+    timeout: 60
+    events:
+      - http:
+          path: /chat  
+          method: post
+          cors: true  
+          #  If you're using an API key:
+          #  authorizer:
+          #    type: COGNITO_USER_POOLS
+          #    authorizerId: your_authorizer_id  #  (If using Cognito)
+          #  request:
+          #    parameters:
+          #      headers:
+          #        X-API-Key: true #  If your code expects an API key
+    # environment:
+    #   ...
+  queueProcessor:
+    handler: carbon_quee_processor.lambda_handler
+    memorySize: 256
+    timeout: 30
+    events:
+      - sqs:  #  Triggered by SQS
+          arn: arn:aws:sqs:YOUR_REGION:YOUR_ACCOUNT_ID:carbon-bedrock-queue  # Replace
+    # environment:
+    #   ...
+plugins:
+  - serverless-python-requirements 
+                                 # npm install serverless-python-requirements
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
