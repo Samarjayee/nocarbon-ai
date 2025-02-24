@@ -9,9 +9,11 @@ frontend:
         - pnpm --version
         - which pnpm
         - pnpm install --frozen-lockfile
-        - export PATH="\$PATH:./node_modules/.bin"
     build:
       commands:
+        - export PATH="\$PATH:\$(npm config get prefix)/bin"
+        - which pnpm
+        - pnpm --version
         - echo \$PATH
         - pnpm run build
   artifacts:
