@@ -1,8 +1,7 @@
 'use client';
 
 import type { Attachment, Message } from 'ai';
-import { useChat } from 'ai/react';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 
 import { ChatHeader } from '@/components/chat-header';
@@ -29,34 +28,61 @@ export function Chat({
   isReadonly: boolean;
 }) {
   const { mutate } = useSWRConfig();
-
-  const {
-    messages,
-    setMessages,
-    handleSubmit,
-    input,
-    setInput,
-    append,
-    isLoading,
-    stop,
-    reload,
-  } = useChat({
-    id,
-    body: { id, modelId: selectedModelId },
-    initialMessages,
-    experimental_throttle: 100,
-    onFinish: () => {
-      mutate('/api/history');
-    },
-  });
+  const [messages, setMessages] = useState<Array<Message>>(initialMessages);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const { data: votes } = useSWR<Array<Vote>>(
-    `/api/vote?chatId=${id}`,
+    `/api/vote?chatId=\${id}`,
     fetcher,
   );
 
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
   const isBlockVisible = useBlockSelector((state) => state.isVisible);
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      if (!input.trim()) return;
+
+      setIsLoading(true);
+      const userMessage: Message = { role: 'user', content: input };
+      setMessages((prevMessages) => [...prevMessages, userMessage]);
+
+      try {
+        const response = await fetch('/api/lambda-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, messages: [...messages, userMessage], modelId: selectedModelId }),
+        });
+
+        if (!response.ok) throw new Error('Failed to send message');
+
+        const data = await response.json();
+        const assistantMessage: Message = { role: 'assistant', content: data.response };
+        setMessages((prevMessages) => [...prevMessages, assistantMessage]);
+        setInput('');
+        mutate('/api/history');
+      } catch (error) {
+        console.error('Error sending message:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [id, input, messages, selectedModelId, mutate]
+  );
+
+  const append = useCallback((message: Message) => {
+    setMessages((prevMessages) => [...prevMessages, message]);
+  }, []);
+
+  const reload = useCallback(() => {
+    // Implement reload logic if needed
+  }, []);
+
+  const stop = useCallback(() => {
+    // Implement stop logic if needed
+  }, []);
 
   return (
     <>
@@ -79,7 +105,7 @@ export function Chat({
           isBlockVisible={isBlockVisible}
         />
 
-        <form className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
+        <form onSubmit={handleSubmit} className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
           {!isReadonly && (
             <MultimodalInput
               chatId={id}
