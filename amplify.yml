@@ -11,6 +11,7 @@ frontend:
     build:
       commands:
         - pnpm --version
+        - echo "POSTGRES_URL=$POSTGRES_URL" >> .env.production # Inject POSTGRES_URL
         - pnpm run build
   artifacts:
     baseDirectory: .next
