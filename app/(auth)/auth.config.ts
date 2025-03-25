@@ -4,17 +4,16 @@ import { getUser } from '@/lib/db/queries';
 import { Pool } from 'pg';
 import { PostgresAdapter } from '@auth/pg-adapter';
 
-// Configure your database connection
+// Configure the database connection using POSTGRES_URL
 const pool = new Pool({
-  host: process.env.DATABASE_HOST,
-  user: process.env.DATABASE_USER,
-  password: process.env.DATABASE_PASSWORD,
-  database: process.env.DATABASE_NAME,
-  port: 5432,
+  connectionString: process.env.POSTGRES_URL,
+  ssl: process.env.POSTGRES_URL?.includes('sslmode=require')
+    ? { rejectUnauthorized: false }
+    : false, // Enable SSL if required by your database
 });
 
 export const authConfig = {
-  adapter: PostgresAdapter(pool), // Add the PostgreSQL adapter
+  adapter: PostgresAdapter(pool), // Use the PostgreSQL adapter
   providers: [
     Credentials({
       credentials: {
@@ -33,7 +32,7 @@ export const authConfig = {
     }),
   ],
   session: {
-    strategy: 'database', // Change from 'jwt' (default) to 'database'
+    strategy: 'database', // Use database sessions to reduce cookie size
   },
   callbacks: {
     async authorized({ auth, request: { nextUrl } }) {
