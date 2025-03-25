@@ -1,7 +1,9 @@
 'use server';
 
 import { z } from 'zod';
+
 import { createUser, getUser } from '@/lib/db/queries';
+
 import { signIn } from './auth';
 
 const authFormSchema = z.object({
@@ -17,27 +19,24 @@ export const login = async (
   _: LoginActionState,
   formData: FormData,
 ): Promise<LoginActionState> => {
-  console.log('Login action called with data:', Object.fromEntries(formData));
   try {
     const validatedData = authFormSchema.parse({
       email: formData.get('email'),
       password: formData.get('password'),
     });
 
-    console.log('Calling signIn with:', validatedData);
     await signIn('credentials', {
       email: validatedData.email,
       password: validatedData.password,
       redirect: false,
     });
 
-    console.log('signIn completed successfully');
     return { status: 'success' };
   } catch (error) {
-    console.error('Login error:', error);
     if (error instanceof z.ZodError) {
       return { status: 'invalid_data' };
     }
+
     return { status: 'failed' };
   }
 };
@@ -79,6 +78,7 @@ export const register = async (
     if (error instanceof z.ZodError) {
       return { status: 'invalid_data' };
     }
+
     return { status: 'failed' };
   }
 };
