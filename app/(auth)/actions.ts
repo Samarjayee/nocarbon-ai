@@ -1,84 +1,76 @@
 'use server';
 
-import { z } from 'zod';
+import { signIn } from 'next-auth/react';
+import { pool } from '../lib/db'; // Assuming you have a PostgreSQL pool setup
 
-import { createUser, getUser } from '@/lib/db/queries';
+export async function register(formData: FormData) {
+  const email = formData.get('email') as string;
+  const password = formData.get('password') as string;
 
-import { signIn } from './auth';
+  console.log('Register action called with data:', { email, password });
 
-const authFormSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-});
-
-export interface LoginActionState {
-  status: 'idle' | 'in_progress' | 'success' | 'failed' | 'invalid_data';
-}
-
-export const login = async (
-  _: LoginActionState,
-  formData: FormData,
-): Promise<LoginActionState> => {
   try {
-    const validatedData = authFormSchema.parse({
-      email: formData.get('email'),
-      password: formData.get('password'),
+    // Check if user already exists
+    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (existingUser.rows.length > 0) {
+      console.log('User already exists');
+      return { error: 'User already exists' };
+    }
+
+    // Create the user in the database
+    const result = await pool.query(
+      'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email',
+      [email, password]
+    );
+    const newUser = result.rows[0];
+    console.log('User created:', newUser);
+
+    // Sign the user in to set the session
+    const signInResult = await signIn('credentials', {
+      email,
+      password,
+      redirect: false, // Handle redirect manually
     });
 
-    await signIn('credentials', {
-      email: validatedData.email,
-      password: validatedData.password,
+    console.log('Sign-in result after registration:', signInResult);
+
+    if (signInResult?.error) {
+      console.log('Sign-in error after registration:', signInResult.error);
+      return { error: 'Failed to sign in after registration' };
+    }
+
+    console.log('Registration and sign-in successful');
+    return { success: true };
+  } catch (error) {
+    console.error('Registration failed with error:', error);
+    return { error: 'Registration failed' };
+  }
+}
+
+export async function login(formData: FormData) {
+  const email = formData.get('email') as string;
+  const password = formData.get('password') as string;
+
+  console.log('Login action called with data:', { email, password });
+
+  try {
+    const result = await signIn('credentials', {
+      email,
+      password,
       redirect: false,
     });
 
-    return { status: 'success' };
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return { status: 'invalid_data' };
+    console.log('Sign-in result:', result);
+
+    if (result?.error) {
+      console.log('Sign-in error:', result.error);
+      return { error: result.error };
     }
 
-    return { status: 'failed' };
+    console.log('Sign-in successful');
+    return { success: true };
+  } catch (error) {
+    console.log('Sign-in failed with error:', error);
+    return { error: 'Invalid credentials' };
   }
-};
-
-export interface RegisterActionState {
-  status:
-    | 'idle'
-    | 'in_progress'
-    | 'success'
-    | 'failed'
-    | 'user_exists'
-    | 'invalid_data';
 }
-
-export const register = async (
-  _: RegisterActionState,
-  formData: FormData,
-): Promise<RegisterActionState> => {
-  try {
-    const validatedData = authFormSchema.parse({
-      email: formData.get('email'),
-      password: formData.get('password'),
-    });
-
-    const [user] = await getUser(validatedData.email);
-
-    if (user) {
-      return { status: 'user_exists' } as RegisterActionState;
-    }
-    await createUser(validatedData.email, validatedData.password);
-    await signIn('credentials', {
-      email: validatedData.email,
-      password: validatedData.password,
-      redirect: false,
-    });
-
-    return { status: 'success' };
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return { status: 'invalid_data' };
-    }
-
-    return { status: 'failed' };
-  }
-};

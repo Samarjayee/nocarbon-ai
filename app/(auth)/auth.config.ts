@@ -1,39 +1,84 @@
-import type { NextAuthConfig } from 'next-auth';
+import NextAuth from 'next-auth';
+import Credentials from 'next-auth/providers/credentials';
+import { getUser } from '@/lib/db/queries';
 
 export const authConfig = {
-  pages: {
-    signIn: '/login',
-    newUser: '/',
-  },
   providers: [
-    // added later in auth.ts since it requires bcrypt which is only compatible with Node.js
-    // while this file is also used in non-Node.js environments
+    Credentials({
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' },
+      },
+      async authorize(credentials: Partial<Record<"email" | "password", unknown>>, request: Request) {
+        console.log('authorize called with credentials:', credentials);
+        const [user] = await getUser(credentials.email as string);
+        console.log('User from getUser:', user);
+
+        if (!user) {
+          console.log('No user found');
+          return null;
+        }
+
+        const isValidPassword = user.password === credentials.password;
+        console.log('Password valid:', isValidPassword);
+
+        if (!isValidPassword) {
+          console.log('Invalid password');
+          return null;
+        }
+
+        return { id: user.id, email: user.email };
+      },
+    }),
   ],
+  session: {
+    strategy: "jwt" as const,
+  },
   callbacks: {
-    authorized({ auth, request: { nextUrl } }) {
+    async jwt({ token, user }: { token: any, user?: any }) {
+      console.log('JWT callback - token:', token, 'user:', user);
+      if (user) {
+        token.id = user.id;
+        token.email = user.email;
+      }
+      return token;
+    },
+    async session({ session, token }: { session: any, token: any }) {
+      console.log('Session callback - session:', session, 'token:', token);
+      if (token) {
+        session.user.id = token.id;
+        session.user.email = token.email;
+      }
+      return session;
+    },
+    async authorized({ auth, request: { nextUrl } }: { auth: any, request: { nextUrl: URL } }) {
       const isLoggedIn = !!auth?.user;
-      const isOnChat = nextUrl.pathname.startsWith('/');
-      const isOnRegister = nextUrl.pathname.startsWith('/register');
-      const isOnLogin = nextUrl.pathname.startsWith('/login');
+      const isOnLoginPage = nextUrl.pathname === '/login';
+      const isOnRegisterPage = nextUrl.pathname === '/register';
 
-      if (isLoggedIn && (isOnLogin || isOnRegister)) {
-        return Response.redirect(new URL('/', nextUrl as unknown as URL));
+      console.log('Middleware - Path:', nextUrl.pathname, 'isLoggedIn:', isLoggedIn, 'Session:', auth);
+
+      if (isLoggedIn && (isOnLoginPage || isOnRegisterPage)) {
+        console.log('Redirecting to / because user is logged in');
+        return Response.redirect(new URL('/', nextUrl));
       }
 
-      if (isOnRegister || isOnLogin) {
-        return true; // Always allow access to register and login pages
+      if (!isLoggedIn && !isOnLoginPage && !isOnRegisterPage) {
+        console.log('Redirecting to /login because user is not logged in');
+        const loginUrl = new URL('/login', nextUrl);
+        if (!isOnLoginPage) {
+          loginUrl.searchParams.set('callbackUrl', nextUrl.toString());
+        }
+        return Response.redirect(loginUrl);
       }
 
-      if (isOnChat) {
-        if (isLoggedIn) return true;
-        return false; // Redirect unauthenticated users to login page
-      }
-
-      if (isLoggedIn) {
-        return Response.redirect(new URL('/', nextUrl as unknown as URL));
-      }
-
+      console.log('Allowing request to proceed');
       return true;
     },
   },
-} satisfies NextAuthConfig;
+  pages: {
+    signIn: '/login',
+  },
+};
+
+export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
