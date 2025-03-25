@@ -1,59 +1,39 @@
-import NextAuth from 'next-auth';
-import Credentials from 'next-auth/providers/credentials';
-import { getUser } from '@/lib/db/queries';
-import { Pool } from 'pg';
-import { PostgresAdapter } from '@auth/pg-adapter';
-
-// Configure the database connection using POSTGRES_URL
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-  ssl: process.env.POSTGRES_URL?.includes('sslmode=require')
-    ? { rejectUnauthorized: false }
-    : false, // Enable SSL if required by your database
-});
+import type { NextAuthConfig } from 'next-auth';
 
 export const authConfig = {
-  adapter: PostgresAdapter(pool), // Use the PostgreSQL adapter
-  providers: [
-    Credentials({
-      credentials: {
-        email: { label: 'Email', type: 'email' },
-        password: { label: 'Password', type: 'password' },
-      },
-      async authorize(credentials) {
-        const [user] = await getUser(credentials.email as string);
-        if (!user) return null;
-
-        const isValidPassword = user.password === credentials.password;
-        if (!isValidPassword) return null;
-
-        return { id: user.id, email: user.email };
-      },
-    }),
-  ],
-  session: {
-    strategy: 'database', // Use database sessions to reduce cookie size
+  pages: {
+    signIn: '/login',
+    newUser: '/',
   },
+  providers: [
+    // added later in auth.ts since it requires bcrypt which is only compatible with Node.js
+    // while this file is also used in non-Node.js environments
+  ],
   callbacks: {
-    async authorized({ auth, request: { nextUrl } }) {
+    authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      const isOnLoginPage = nextUrl.pathname === '/login';
-      const isOnRegisterPage = nextUrl.pathname === '/register';
+      const isOnChat = nextUrl.pathname.startsWith('/');
+      const isOnRegister = nextUrl.pathname.startsWith('/register');
+      const isOnLogin = nextUrl.pathname.startsWith('/login');
 
-      if (isLoggedIn && (isOnLoginPage || isOnRegisterPage)) {
-        return Response.redirect(new URL('/', nextUrl));
+      if (isLoggedIn && (isOnLogin || isOnRegister)) {
+        return Response.redirect(new URL('/', nextUrl as unknown as URL));
       }
 
-      if (!isLoggedIn && !isOnLoginPage && !isOnRegisterPage) {
-        return Response.redirect(new URL('/login', nextUrl));
+      if (isOnRegister || isOnLogin) {
+        return true; // Always allow access to register and login pages
+      }
+
+      if (isOnChat) {
+        if (isLoggedIn) return true;
+        return false; // Redirect unauthenticated users to login page
+      }
+
+      if (isLoggedIn) {
+        return Response.redirect(new URL('/', nextUrl as unknown as URL));
       }
 
       return true;
     },
   },
-  pages: {
-    signIn: '/login',
-  },
-};
-
-export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+} satisfies NextAuthConfig;
