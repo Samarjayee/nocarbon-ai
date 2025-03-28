@@ -1,186 +1,200 @@
-import {
-  type Message,
-  convertToCoreMessages,
-  createDataStreamResponse,
-  smoothStream,
-  streamText,
-} from 'ai';
-
+// app/api/chat/route.ts
+import { NextRequest } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
-import { customModel } from '@/lib/ai';
-import { models } from '@/lib/ai/models';
-import { systemPrompt } from '@/lib/ai/prompts';
 import {
   deleteChatById,
   getChatById,
   saveChat,
   saveMessages,
 } from '@/lib/db/queries';
-import {
-  generateUUID,
-  getMostRecentUserMessage,
-  sanitizeResponseMessages,
-} from '@/lib/utils';
-
+import { generateUUID } from '@/lib/utils';
 import { generateTitleFromUserMessage } from '../../actions';
-import { createDocument } from '@/lib/ai/tools/create-document';
-import { updateDocument } from '@/lib/ai/tools/update-document';
-import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
-import { getWeather } from '@/lib/ai/tools/get-weather';
+
+// Define the Message type locally
+type Message = {
+  id?: string;
+  role: 'user' | 'assistant' | 'data' | 'system';
+  content: string;
+  createdAt?: Date;
+  chatId?: string;
+};
 
 export const maxDuration = 60;
 
-type AllowedTools =
-  | 'createDocument'
-  | 'updateDocument'
-  | 'requestSuggestions'
-  | 'getWeather';
+export async function POST(req: NextRequest) {
+  try {
+    // Validate LAMBDA_URL environment variable
+    const lambdaUrl = process.env.LAMBDA_URL;
+    if (!lambdaUrl) {
+      throw new Error('LAMBDA_URL environment variable is not set');
+    }
 
-const blocksTools: AllowedTools[] = [
-  'createDocument',
-  'updateDocument',
-  'requestSuggestions',
-];
+    const json = await req.json();
+    const { id, messages }: { id: string; messages: Array<Message> } = json;
 
-const weatherTools: AllowedTools[] = ['getWeather'];
-const allTools: AllowedTools[] = [...blocksTools, ...weatherTools];
-
-export async function POST(request: Request) {
-  const {
-    id,
-    messages,
-    modelId,
-  }: { id: string; messages: Array<Message>; modelId: string } =
-    await request.json();
-
-  const session = await auth();
-
-  if (!session || !session.user || !session.user.id) {
-    return new Response('Unauthorized', { status: 401 });
-  }
-
-  const model = models.find((model) => model.id === modelId);
-
-  if (!model) {
-    return new Response('Model not found', { status: 404 });
-  }
-
-  const coreMessages = convertToCoreMessages(messages);
-  const userMessage = getMostRecentUserMessage(coreMessages);
-
-  if (!userMessage) {
-    return new Response('No user message found', { status: 400 });
-  }
-
-  const chat = await getChatById({ id });
-
-  if (!chat) {
-    const title = await generateTitleFromUserMessage({ message: userMessage });
-    await saveChat({ id, userId: session.user.id, title });
-  }
-
-  const userMessageId = generateUUID();
-
-  await saveMessages({
-    messages: [
-      { ...userMessage, id: userMessageId, createdAt: new Date(), chatId: id },
-    ],
-  });
-
-  return createDataStreamResponse({
-    execute: (dataStream) => {
-      dataStream.writeData({
-        type: 'user-message-id',
-        content: userMessageId,
+    // Authenticate the user
+    const session = await auth();
+    if (!session || !session.user || !session.user.id) {
+      console.error('Unauthorized access attempt');
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
       });
+    }
 
-      const result = streamText({
-        model: customModel(model.apiIdentifier),
-        system: systemPrompt,
-        messages: coreMessages,
-        maxSteps: 5,
-        experimental_activeTools: allTools,
-        experimental_transform: smoothStream({ chunking: 'word' }),
-        tools: {
-          getWeather,
-          createDocument: createDocument({ session, dataStream, model }),
-          updateDocument: updateDocument({ session, dataStream, model }),
-          requestSuggestions: requestSuggestions({
-            session,
-            dataStream,
-            model,
-          }),
-        },
-        onFinish: async ({ response }) => {
-          if (session.user?.id) {
-            try {
-              const responseMessagesWithoutIncompleteToolCalls =
-                sanitizeResponseMessages(response.messages);
-
-              await saveMessages({
-                messages: responseMessagesWithoutIncompleteToolCalls.map(
-                  (message) => {
-                    const messageId = generateUUID();
-
-                    if (message.role === 'assistant') {
-                      dataStream.writeMessageAnnotation({
-                        messageIdFromServer: messageId,
-                      });
-                    }
-
-                    return {
-                      id: messageId,
-                      chatId: id,
-                      role: message.role,
-                      content: message.content,
-                      createdAt: new Date(),
-                    };
-                  },
-                ),
-              });
-            } catch (error) {
-              console.error('Failed to save chat');
-            }
-          }
-        },
-        experimental_telemetry: {
-          isEnabled: true,
-          functionId: 'stream-text',
-        },
+    // Get the latest user message
+    const latestMessage = messages[messages.length - 1];
+    if (!latestMessage || latestMessage.role !== 'user') {
+      console.error('No user message found in request');
+      return new Response(JSON.stringify({ error: 'No user message found' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
       });
+    }
 
-      result.mergeIntoDataStream(dataStream);
-    },
-  });
+    console.log('Received query from frontend:', latestMessage.content);
+
+    // Check if the chat exists; if not, create it
+    const chat = await getChatById({ id });
+    if (!chat) {
+      const title = await generateTitleFromUserMessage({ message: { ...latestMessage, role: 'user' } });
+      await saveChat({ id, userId: session.user.id, title });
+      console.log('Created new chat with ID:', id, 'and title:', title);
+    }
+
+    // Save the user message
+    const userMessageId = generateUUID();
+    await saveMessages({
+      messages: [
+        { ...latestMessage, id: userMessageId, createdAt: new Date(), chatId: id },
+      ],
+    });
+    console.log('Saved user message with ID:', userMessageId);
+
+    // Call Lambda function
+    const response = await fetch(lambdaUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: latestMessage.content, conversationId: id }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Lambda error response:', errorData);
+      throw new Error(`Lambda request failed with status ${response.status}: ${errorData.error || 'Unknown error'}`);
+    }
+
+    const result = await response.json();
+    console.log('Lambda response:', result);
+    const lambdaResponse = result.response || 'Error: No response from Lambda';
+
+    // Create a stream to send the response incrementally
+    const stream = new ReadableStream({
+      async start(controller) {
+        const assistantMessageId = generateUUID();
+        let fullResponse = '';
+
+        // Split the response into words (or characters) for streaming
+        const words = lambdaResponse.split(' '); // Split by words for a word-by-word effect
+        for (const word of words) {
+          fullResponse += word + ' ';
+          const chunk = JSON.stringify({
+            result: word + ' ', // Add space to reconstruct the sentence
+            userMessageId,
+            assistantMessageId,
+          }) + '\n';
+          controller.enqueue(new TextEncoder().encode(chunk));
+          // Add a small delay to simulate streaming (adjust as needed)
+          await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay per word
+        }
+
+        // Save the full assistant response to the database after streaming
+        await saveMessages({
+          messages: [
+            {
+              id: assistantMessageId,
+              chatId: id,
+              role: 'assistant',
+              content: fullResponse.trim(),
+              createdAt: new Date(),
+            },
+          ],
+        });
+        console.log('Saved assistant message with ID:', assistantMessageId);
+
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/x-ndjson', // Use NDJSON for streaming
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error in chat API:', error.message);
+    return new Response(
+      JSON.stringify({
+        error: error.message || 'An error occurred while processing your request',
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
 }
 
-export async function DELETE(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
-
-  if (!id) {
-    return new Response('Not Found', { status: 404 });
-  }
-
-  const session = await auth();
-
-  if (!session || !session.user) {
-    return new Response('Unauthorized', { status: 401 });
-  }
-
+export async function DELETE(req: NextRequest) {
   try {
-    const chat = await getChatById({ id });
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
 
+    if (!id) {
+      console.error('No chat ID provided for deletion');
+      return new Response(JSON.stringify({ error: 'Not Found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const session = await auth();
+    if (!session || !session.user) {
+      console.error('Unauthorized attempt to delete chat:', id);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const chat = await getChatById({ id });
     if (chat.userId !== session.user.id) {
-      return new Response('Unauthorized', { status: 401 });
+      console.error('User not authorized to delete chat:', id);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     await deleteChatById({ id });
+    console.log('Successfully deleted chat with ID:', id);
 
-    return new Response('Chat deleted', { status: 200 });
-  } catch (error) {
-    return new Response('An error occurred while processing your request', {
-      status: 500,
+    return new Response(JSON.stringify({ message: 'Chat deleted' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
     });
+  } catch (error: any) {
+    console.error('Error deleting chat:', error.message);
+    return new Response(
+      JSON.stringify({
+        error: error.message || 'An error occurred while processing your request',
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   }
 }

@@ -1,39 +1,55 @@
+// components/suggested-actions.tsx
 'use client';
 
 import { motion } from 'framer-motion';
 import { Button } from './ui/button';
-import { ChatRequestOptions, CreateMessage, Message } from 'ai';
 import { memo } from 'react';
+
+// Define types inline to match multimodal-input.tsx
+type Message = {
+  id?: string;
+  role: 'user' | 'assistant' | 'data' | 'system';
+  content: string;
+};
+
+type CreateMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type ChatRequestOptions = {
+  experimental_attachments?: { url: string; name: string; contentType: string }[];
+};
 
 interface SuggestedActionsProps {
   chatId: string;
-  append: (
+  sendMessage: (
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
 }
 
-function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
+function PureSuggestedActions({ chatId, sendMessage }: SuggestedActionsProps) {
   const suggestedActions = [
     {
-      title: 'What are the advantages',
-      label: 'of using Next.js?',
-      action: 'What are the advantages of using Next.js?',
+      title: 'Calculate CO₂e',
+      label: 'for a 10 km car trip',
+      action: 'How much CO₂e for a 10 km car trip?',
     },
     {
-      title: 'Write code to',
-      label: `demonstrate djikstra's algorithm`,
-      action: `Write code to demonstrate djikstra's algorithm`,
+      title: 'Estimate my',
+      label: 'daily carbon footprint',
+      action: 'What is my daily carbon footprint?',
     },
     {
-      title: 'Help me write an essay',
-      label: `about silicon valley`,
-      action: `Help me write an essay about silicon valley`,
+      title: 'Suggest ways to',
+      label: 'reduce my emissions',
+      action: 'How can I reduce my carbon emissions?',
     },
     {
-      title: 'What is the weather',
-      label: 'in San Francisco?',
-      action: 'What is the weather in San Francisco?',
+      title: 'What is the impact',
+      label: 'of flying 1000 km?',
+      action: 'What is the carbon impact of flying 1000 km?',
     },
   ];
 
@@ -53,7 +69,7 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
             onClick={async () => {
               window.history.replaceState({}, '', `/chat/${chatId}`);
 
-              append({
+              await sendMessage({
                 role: 'user',
                 content: suggestedAction.action,
               });

@@ -1,15 +1,22 @@
+// app/actions.ts
 'use server';
 
-import { type CoreUserMessage, generateText } from 'ai';
 import { cookies } from 'next/headers';
-
-import { customModel } from '@/lib/ai';
 import {
   deleteMessagesByChatIdAfterTimestamp,
   getMessageById,
   updateChatVisiblityById,
 } from '@/lib/db/queries';
 import { VisibilityType } from '@/components/visibility-selector';
+
+// Define the Message type locally to match other files
+type Message = {
+  id?: string;
+  role: 'user' | 'assistant' | 'data' | 'system';
+  content: string;
+  createdAt?: Date;
+  chatId?: string;
+};
 
 export async function saveModelId(model: string) {
   const cookieStore = await cookies();
@@ -19,17 +26,24 @@ export async function saveModelId(model: string) {
 export async function generateTitleFromUserMessage({
   message,
 }: {
-  message: CoreUserMessage;
+  message: Message;
 }) {
-  const { text: title } = await generateText({
-    model: customModel('gpt-4o-mini'),
-    system: `\n
-    - you will generate a short title based on the first message a user begins a conversation with
-    - ensure it is not more than 80 characters long
-    - the title should be a summary of the user's message
-    - do not use quotes or colons`,
-    prompt: JSON.stringify(message),
-  });
+  // Generate a title by truncating the message
+  const maxLength = 80;
+  let title = message.content.trim();
+
+  // If the message is too long, truncate it and add ellipsis
+  if (title.length > maxLength) {
+    title = title.substring(0, maxLength - 3) + '...';
+  }
+
+  // If the message is empty, use a default title
+  if (!title) {
+    title = 'Untitled Chat';
+  }
+
+  // Ensure the title does not contain quotes or colons
+  title = title.replace(/['":]/g, '');
 
   return title;
 }
