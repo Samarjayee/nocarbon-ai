@@ -1,11 +1,5 @@
 'use client';
 
-import type {
-  Attachment,
-  ChatRequestOptions,
-  CreateMessage,
-  Message,
-} from 'ai';
 import cx from 'classnames';
 import type React from 'react';
 import {
@@ -21,14 +15,39 @@ import {
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
-import { sanitizeUIMessages } from '@/lib/utils';
-
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
 import { PreviewAttachment } from './preview-attachment';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { SuggestedActions } from './suggested-actions';
 import equal from 'fast-deep-equal';
+
+// Define types locally
+type Attachment = {
+  url: string;
+  name: string;
+  contentType: string;
+};
+
+type Message = {
+  id?: string;
+  role: 'user' | 'assistant' | 'data' | 'system';
+  content: string;
+};
+
+type CreateMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type LocalChatRequestOptions = {
+  experimental_attachments?: Attachment[];
+};
+
+type SendMessageFunction = (
+  message: Message | CreateMessage,
+  chatRequestOptions?: LocalChatRequestOptions
+) => Promise<string | null | undefined>;
 
 function PureMultimodalInput({
   chatId,
@@ -40,8 +59,6 @@ function PureMultimodalInput({
   setAttachments,
   messages,
   setMessages,
-  append,
-  handleSubmit,
   className,
 }: {
   chatId: string;
@@ -53,16 +70,6 @@ function PureMultimodalInput({
   setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
   messages: Array<Message>;
   setMessages: Dispatch<SetStateAction<Array<Message>>>;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
-  handleSubmit: (
-    event?: {
-      preventDefault?: () => void;
-    },
-    chatRequestOptions?: ChatRequestOptions,
-  ) => void;
   className?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,21 +95,15 @@ function PureMultimodalInput({
     }
   };
 
-  const [localStorageInput, setLocalStorageInput] = useLocalStorage(
-    'input',
-    '',
-  );
+  const [localStorageInput, setLocalStorageInput] = useLocalStorage('input', '');
 
   useEffect(() => {
     if (textareaRef.current) {
       const domValue = textareaRef.current.value;
-      // Prefer DOM value over localStorage to handle hydration
       const finalValue = domValue || localStorageInput || '';
       setInput(finalValue);
       adjustHeight();
     }
-    // Only run once after hydration
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -117,13 +118,132 @@ function PureMultimodalInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
 
+  const sendMessage: SendMessageFunction = useCallback(
+    async (message: Message | CreateMessage, chatRequestOptions?: LocalChatRequestOptions) => {
+      try {
+        // Add the user's message to the chat interface
+        const userMessageId = `${Date.now()}-${Math.random()}`;
+        console.log('Query sent from frontend:', message.content);
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          { ...message, id: userMessageId } as Message,
+        ]);
+
+        // Send the query to the backend API, which proxies to the Lambda
+        console.log('Sending request to /api/chat with chatId:', chatId);
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: chatId,
+            messages: [...messages, message],
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Backend request failed with status ${response.status}`);
+        }
+
+        if (!response.body) {
+          throw new Error('No response body to stream');
+        }
+
+        // Handle the streaming response (NDJSON format)
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullResponse = '';
+        let assistantMessageId: string | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            // Add the full assistant message to the messages array
+            setMessages((prevMessages) => {
+              const updatedMessages = [...prevMessages];
+              const lastMessage = updatedMessages[updatedMessages.length - 1];
+              if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
+                // Update the existing assistant message with the full content
+                updatedMessages[updatedMessages.length - 1] = {
+                  ...lastMessage,
+                  content: fullResponse,
+                };
+              } else {
+                // Add a new assistant message
+                updatedMessages.push({
+                  role: 'assistant',
+                  content: fullResponse,
+                  id: assistantMessageId || `${Date.now()}-${Math.random()}`,
+                });
+              }
+              console.log('Response displayed on frontend:', fullResponse);
+              return updatedMessages;
+            });
+            break;
+          }
+
+          // Decode the chunk and split into lines (NDJSON format)
+          const chunkText = decoder.decode(value, { stream: true });
+          const lines = chunkText.split('\n').filter(line => line.trim() !== '');
+
+          for (const line of lines) {
+            try {
+              const chunkData = JSON.parse(line);
+              const text = chunkData.result || '';
+              assistantMessageId = chunkData.assistantMessageId || assistantMessageId;
+
+              fullResponse += text;
+
+              // Update the UI incrementally by updating the last assistant message
+              setMessages((prevMessages) => {
+                const updatedMessages = [...prevMessages];
+                const lastMessage = updatedMessages[updatedMessages.length - 1];
+
+                if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
+                  // Update the existing assistant message
+                  updatedMessages[updatedMessages.length - 1] = {
+                    ...lastMessage,
+                    content: fullResponse,
+                  };
+                } else {
+                  // Add a new assistant message
+                  updatedMessages.push({
+                    role: 'assistant',
+                    content: fullResponse,
+                    id: assistantMessageId || `${Date.now()}-${Math.random()}`,
+                  });
+                }
+                return updatedMessages;
+              });
+            } catch (e) {
+              console.error('Error parsing chunk:', e);
+            }
+          }
+        }
+
+        return userMessageId;
+      } catch (error: any) {
+        console.error('Error processing query:', error.message);
+        toast.error('Failed to get response from server.');
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          { role: 'assistant', content: 'Error: Unable to process your query.', id: `${Date.now()}-${Math.random()}` } as Message,
+        ]);
+        return null;
+      }
+    },
+    [chatId, messages, setMessages]
+  );
+
   const submitForm = useCallback(() => {
     window.history.replaceState({}, '', `/chat/${chatId}`);
 
-    handleSubmit(undefined, {
-      experimental_attachments: attachments,
-    });
+    const message: CreateMessage = {
+      role: 'user',
+      content: input,
+    };
 
+    sendMessage(message);
+    setInput('');
     setAttachments([]);
     setLocalStorageInput('');
     resetHeight();
@@ -131,14 +251,7 @@ function PureMultimodalInput({
     if (width && width > 768) {
       textareaRef.current?.focus();
     }
-  }, [
-    attachments,
-    handleSubmit,
-    setAttachments,
-    setLocalStorageInput,
-    width,
-    chatId,
-  ]);
+  }, [input, sendMessage, setInput, setAttachments, setLocalStorageInput, width, chatId]);
 
   const uploadFile = async (file: File) => {
     const formData = new FormData();
@@ -185,7 +298,7 @@ function PureMultimodalInput({
           ...successfullyUploadedAttachments,
         ]);
       } catch (error) {
-        console.error('Error uploading files!', error);
+        console.error('Error uploading files:', error);
       } finally {
         setUploadQueue([]);
       }
@@ -195,11 +308,9 @@ function PureMultimodalInput({
 
   return (
     <div className="relative w-full flex flex-col gap-4">
-      {messages.length === 0 &&
-        attachments.length === 0 &&
-        uploadQueue.length === 0 && (
-          <SuggestedActions append={append} chatId={chatId} />
-        )}
+      {messages.length === 0 && attachments.length === 0 && uploadQueue.length === 0 && (
+        <SuggestedActions sendMessage={sendMessage} chatId={chatId} />
+      )}
 
       <input
         type="file"
@@ -246,7 +357,7 @@ function PureMultimodalInput({
             event.preventDefault();
 
             if (isLoading) {
-              toast.error('Please wait for the model to finish its response!');
+              toast.error('Please wait for the response!');
             } else {
               submitForm();
             }
@@ -273,16 +384,12 @@ function PureMultimodalInput({
   );
 }
 
-export const MultimodalInput = memo(
-  PureMultimodalInput,
-  (prevProps, nextProps) => {
-    if (prevProps.input !== nextProps.input) return false;
-    if (prevProps.isLoading !== nextProps.isLoading) return false;
-    if (!equal(prevProps.attachments, nextProps.attachments)) return false;
-
-    return true;
-  },
-);
+export const MultimodalInput = memo(PureMultimodalInput, (prevProps, nextProps) => {
+  if (prevProps.input !== nextProps.input) return false;
+  if (prevProps.isLoading !== nextProps.isLoading) return false;
+  if (!equal(prevProps.attachments, nextProps.attachments)) return false;
+  return true;
+});
 
 function PureAttachmentsButton({
   fileInputRef,
@@ -321,7 +428,7 @@ function PureStopButton({
       onClick={(event) => {
         event.preventDefault();
         stop();
-        setMessages((messages) => sanitizeUIMessages(messages));
+        setMessages((messages) => messages);
       }}
     >
       <StopIcon size={14} />
@@ -355,8 +462,7 @@ function PureSendButton({
 }
 
 const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
-  if (prevProps.uploadQueue.length !== nextProps.uploadQueue.length)
-    return false;
+  if (prevProps.uploadQueue.length !== nextProps.uploadQueue.length) return false;
   if (prevProps.input !== nextProps.input) return false;
   return true;
 });
