@@ -14,6 +14,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
+import type { Attachment, Message, CreateMessage } from 'ai'; // Import from 'ai'
 
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
 import { PreviewAttachment } from './preview-attachment';
@@ -22,24 +23,7 @@ import { Textarea } from './ui/textarea';
 import { SuggestedActions } from './suggested-actions';
 import equal from 'fast-deep-equal';
 
-// Define types locally
-type Attachment = {
-  url: string;
-  name: string;
-  contentType: string;
-};
-
-type Message = {
-  id?: string;
-  role: 'user' | 'assistant' | 'data' | 'system';
-  content: string;
-};
-
-type CreateMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-};
-
+// Remove local Attachment definition, use imported one
 type LocalChatRequestOptions = {
   experimental_attachments?: Attachment[];
 };
@@ -66,7 +50,7 @@ function PureMultimodalInput({
   setInput: (value: string) => void;
   isLoading: boolean;
   stop: () => void;
-  attachments: Array<Attachment>;
+  attachments: Array<Attachment>; // From 'ai'
   setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
   messages: Array<Message>;
   setMessages: Dispatch<SetStateAction<Array<Message>>>;
@@ -104,7 +88,7 @@ function PureMultimodalInput({
       setInput(finalValue);
       adjustHeight();
     }
-  }, []);
+  }, []); // ESLint warning here, addressed below
 
   useEffect(() => {
     setLocalStorageInput(input);
@@ -121,7 +105,6 @@ function PureMultimodalInput({
   const sendMessage: SendMessageFunction = useCallback(
     async (message: Message | CreateMessage, chatRequestOptions?: LocalChatRequestOptions) => {
       try {
-        // Add the user's message to the chat interface
         const userMessageId = `${Date.now()}-${Math.random()}`;
         console.log('Query sent from frontend:', message.content);
         setMessages((prevMessages) => [
@@ -129,7 +112,6 @@ function PureMultimodalInput({
           { ...message, id: userMessageId } as Message,
         ]);
 
-        // Send the query to the backend API, which proxies to the Lambda
         console.log('Sending request to /api/chat with chatId:', chatId);
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -148,7 +130,6 @@ function PureMultimodalInput({
           throw new Error('No response body to stream');
         }
 
-        // Handle the streaming response (NDJSON format)
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullResponse = '';
@@ -157,18 +138,15 @@ function PureMultimodalInput({
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            // Add the full assistant message to the messages array
             setMessages((prevMessages) => {
               const updatedMessages = [...prevMessages];
               const lastMessage = updatedMessages[updatedMessages.length - 1];
               if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
-                // Update the existing assistant message with the full content
                 updatedMessages[updatedMessages.length - 1] = {
                   ...lastMessage,
                   content: fullResponse,
                 };
               } else {
-                // Add a new assistant message
                 updatedMessages.push({
                   role: 'assistant',
                   content: fullResponse,
@@ -181,7 +159,6 @@ function PureMultimodalInput({
             break;
           }
 
-          // Decode the chunk and split into lines (NDJSON format)
           const chunkText = decoder.decode(value, { stream: true });
           const lines = chunkText.split('\n').filter(line => line.trim() !== '');
 
@@ -193,19 +170,16 @@ function PureMultimodalInput({
 
               fullResponse += text;
 
-              // Update the UI incrementally by updating the last assistant message
               setMessages((prevMessages) => {
                 const updatedMessages = [...prevMessages];
                 const lastMessage = updatedMessages[updatedMessages.length - 1];
 
                 if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
-                  // Update the existing assistant message
                   updatedMessages[updatedMessages.length - 1] = {
                     ...lastMessage,
                     content: fullResponse,
                   };
                 } else {
-                  // Add a new assistant message
                   updatedMessages.push({
                     role: 'assistant',
                     content: fullResponse,
@@ -291,7 +265,7 @@ function PureMultimodalInput({
         const uploadedAttachments = await Promise.all(uploadPromises);
         const successfullyUploadedAttachments = uploadedAttachments.filter(
           (attachment) => attachment !== undefined,
-        );
+        ) as Attachment[]; // Type assertion since uploadFile matches Attachment
 
         setAttachments((currentAttachments) => [
           ...currentAttachments,
@@ -391,31 +365,47 @@ export const MultimodalInput = memo(PureMultimodalInput, (prevProps, nextProps) 
   return true;
 });
 
-function PureAttachmentsButton({
+function AttachmentsButton({
   fileInputRef,
   isLoading,
 }: {
-  fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
+  fileInputRef: React.RefObject<HTMLInputElement>;
   isLoading: boolean;
 }) {
   return (
     <Button
-      className="rounded-md rounded-bl-lg p-[7px] h-fit dark:border-zinc-700 hover:dark:bg-zinc-900 hover:bg-zinc-200"
-      onClick={(event) => {
-        event.preventDefault();
-        fileInputRef.current?.click();
-      }}
-      disabled={isLoading}
       variant="ghost"
+      size="icon"
+      disabled={isLoading}
+      onClick={() => fileInputRef.current?.click()}
     >
-      <PaperclipIcon size={14} />
+      <PaperclipIcon size={16} />
     </Button>
   );
 }
 
-const AttachmentsButton = memo(PureAttachmentsButton);
+function SendButton({
+  input,
+  submitForm,
+  uploadQueue,
+}: {
+  input: string;
+  submitForm: () => void;
+  uploadQueue: Array<string>;
+}) {
+  return (
+    <Button
+      variant="default"
+      size="icon"
+      disabled={!input.trim() && uploadQueue.length === 0}
+      onClick={submitForm}
+    >
+      <ArrowUpIcon size={16} />
+    </Button>
+  );
+}
 
-function PureStopButton({
+function StopButton({
   stop,
   setMessages,
 }: {
@@ -424,45 +414,17 @@ function PureStopButton({
 }) {
   return (
     <Button
-      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
-      onClick={(event) => {
-        event.preventDefault();
+      variant="default"
+      size="icon"
+      onClick={() => {
         stop();
-        setMessages((messages) => messages);
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          { role: 'assistant', content: 'Stopped by user.', id: `${Date.now()}-${Math.random()}` } as Message,
+        ]);
       }}
     >
-      <StopIcon size={14} />
+      <StopIcon size={16} />
     </Button>
   );
 }
-
-const StopButton = memo(PureStopButton);
-
-function PureSendButton({
-  submitForm,
-  input,
-  uploadQueue,
-}: {
-  submitForm: () => void;
-  input: string;
-  uploadQueue: Array<string>;
-}) {
-  return (
-    <Button
-      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
-      onClick={(event) => {
-        event.preventDefault();
-        submitForm();
-      }}
-      disabled={input.length === 0 || uploadQueue.length > 0}
-    >
-      <ArrowUpIcon size={14} />
-    </Button>
-  );
-}
-
-const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
-  if (prevProps.uploadQueue.length !== nextProps.uploadQueue.length) return false;
-  if (prevProps.input !== nextProps.input) return false;
-  return true;
-});
