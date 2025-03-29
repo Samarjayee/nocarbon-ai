@@ -1,9 +1,3 @@
-import type {
-  Attachment,
-  ChatRequestOptions,
-  CreateMessage,
-  Message,
-} from 'ai';
 import { formatDistance } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -35,6 +29,13 @@ import { useSidebar } from './ui/sidebar';
 import { useBlock } from '@/hooks/use-block';
 import equal from 'fast-deep-equal';
 import { ImageEditor } from './image-editor';
+
+// Define types locally (from multimodal-input.tsx)
+type Message = {
+  id: string;
+  role: 'user' | 'assistant' | 'data' | 'system';
+  content: string;
+};
 
 export type BlockKind = 'text' | 'code' | 'image';
 
@@ -68,15 +69,10 @@ function PureBlock({
   chatId,
   input,
   setInput,
-  handleSubmit,
   isLoading,
   stop,
-  attachments,
-  setAttachments,
-  append,
   messages,
   setMessages,
-  reload,
   votes,
   isReadonly,
 }: {
@@ -85,24 +81,9 @@ function PureBlock({
   setInput: (input: string) => void;
   isLoading: boolean;
   stop: () => void;
-  attachments: Array<Attachment>;
-  setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
   messages: Array<Message>;
   setMessages: Dispatch<SetStateAction<Array<Message>>>;
   votes: Array<Vote> | undefined;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
-  handleSubmit: (
-    event?: {
-      preventDefault?: () => void;
-    },
-    chatRequestOptions?: ChatRequestOptions,
-  ) => void;
-  reload: (
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
   isReadonly: boolean;
 }) {
   const { block, setBlock } = useBlock();
@@ -332,7 +313,7 @@ function PureBlock({
                   votes={votes}
                   messages={messages}
                   setMessages={setMessages}
-                  reload={reload}
+                  reload={() => Promise.resolve(null)} // Stub, not used
                   isReadonly={isReadonly}
                   blockStatus={block.status}
                 />
@@ -342,15 +323,13 @@ function PureBlock({
                     chatId={chatId}
                     input={input}
                     setInput={setInput}
-                    handleSubmit={handleSubmit}
                     isLoading={isLoading}
                     stop={stop}
-                    attachments={attachments}
-                    setAttachments={setAttachments}
+                    attachments={[]} // Pass empty array since not used
+                    setAttachments={() => {}} // No-op function since not used
                     messages={messages}
-                    append={append}
-                    className="bg-background dark:bg-muted"
                     setMessages={setMessages}
+                    className="bg-background dark:bg-muted"
                   />
                 </form>
               </div>
@@ -537,7 +516,7 @@ function PureBlock({
                     <Toolbar
                       isToolbarVisible={isToolbarVisible}
                       setIsToolbarVisible={setIsToolbarVisible}
-                      append={append}
+                      append={() => Promise.resolve(null)} // Stub, not used
                       isLoading={isLoading}
                       stop={stop}
                       setMessages={setMessages}
