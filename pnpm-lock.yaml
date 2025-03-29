@@ -65,6 +65,9 @@ dependencies:
   ai:
     specifier: 4.1.1
     version: 4.1.1(react@19.0.0-rc-45804af1-20241021)(zod@3.24.2)
+  ai-chatbot:
+    specifier: 'link:'
+    version: 'link:'
   bcrypt-ts:
     specifier: ^5.0.2
     version: 5.0.3
