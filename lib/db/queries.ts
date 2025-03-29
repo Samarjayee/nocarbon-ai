@@ -17,6 +17,7 @@ import {
   vote,
 } from './schema';
 import { BlockKind } from '@/components/block';
+import type { InferInsertModel } from 'drizzle-orm';
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
@@ -51,11 +52,7 @@ export async function saveChat({
   id,
   userId,
   title,
-}: {
-  id: string;
-  userId: string;
-  title: string;
-}) {
+}: InferInsertModel<typeof chat>) {
   try {
     return await db.insert(chat).values({
       id,
@@ -64,7 +61,7 @@ export async function saveChat({
       title,
     });
   } catch (error) {
-    console.error('Failed to save chat in database');
+    console.error('Failed to save chat in database', error);
     throw error;
   }
 }
@@ -162,7 +159,7 @@ export async function getVotesByChatId({ id }: { id: string }) {
   try {
     return await db.select().from(vote).where(eq(vote.chatId, id));
   } catch (error) {
-    console.error('Failed to get votes by chat id from database', error);
+    console.error('Failed to get votes by chat id from database');
     throw error;
   }
 }

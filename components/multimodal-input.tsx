@@ -9,29 +9,29 @@ import {
   useCallback,
   type Dispatch,
   type SetStateAction,
-  type ChangeEvent,
   memo,
 } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
-import type { Attachment, Message, CreateMessage } from 'ai'; // Import from 'ai'
 
-import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
-import { PreviewAttachment } from './preview-attachment';
+import { ArrowUpIcon, StopIcon } from './icons';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { SuggestedActions } from './suggested-actions';
 import equal from 'fast-deep-equal';
 
-// Remove local Attachment definition, use imported one
-type LocalChatRequestOptions = {
-  experimental_attachments?: Attachment[];
+type Message = {
+  id?: string;
+  role: 'user' | 'assistant' | 'data' | 'system';
+  content: string;
 };
 
-type SendMessageFunction = (
-  message: Message | CreateMessage,
-  chatRequestOptions?: LocalChatRequestOptions
-) => Promise<string | null | undefined>;
+type CreateMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type SendMessageFunction = (message: Message | CreateMessage) => Promise<string | null | undefined>;
 
 function PureMultimodalInput({
   chatId,
@@ -39,22 +39,24 @@ function PureMultimodalInput({
   setInput,
   isLoading,
   stop,
-  attachments,
-  setAttachments,
   messages,
   setMessages,
   className,
+  handleSubmit, // Add handleSubmit to props
+  append, // Add append to props
+  ...props // Allow extra props like attachments, setAttachments
 }: {
   chatId: string;
   input: string;
   setInput: (value: string) => void;
   isLoading: boolean;
   stop: () => void;
-  attachments: Array<Attachment>; // From 'ai'
-  setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
   messages: Array<Message>;
   setMessages: Dispatch<SetStateAction<Array<Message>>>;
   className?: string;
+  handleSubmit?: (event?: { preventDefault?: () => void }, chatRequestOptions?: any) => void; // Type for handleSubmit
+  append?: (message: Message | CreateMessage, chatRequestOptions?: any) => void; // Type for append
+  [key: string]: any; // Allow extra props
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -88,7 +90,7 @@ function PureMultimodalInput({
       setInput(finalValue);
       adjustHeight();
     }
-  }, []); // ESLint warning here, addressed below
+  }, [localStorageInput, setInput]); // Add dependencies to fix ESLint warning
 
   useEffect(() => {
     setLocalStorageInput(input);
@@ -99,12 +101,10 @@ function PureMultimodalInput({
     adjustHeight();
   };
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
-
   const sendMessage: SendMessageFunction = useCallback(
-    async (message: Message | CreateMessage, chatRequestOptions?: LocalChatRequestOptions) => {
+    async (message: Message | CreateMessage) => {
       try {
+        // Add the user's message to the chat interface
         const userMessageId = `${Date.now()}-${Math.random()}`;
         console.log('Query sent from frontend:', message.content);
         setMessages((prevMessages) => [
@@ -112,6 +112,7 @@ function PureMultimodalInput({
           { ...message, id: userMessageId } as Message,
         ]);
 
+        // Send the query to the backend API, which proxies to the Lambda
         console.log('Sending request to /api/chat with chatId:', chatId);
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -130,6 +131,7 @@ function PureMultimodalInput({
           throw new Error('No response body to stream');
         }
 
+        // Handle the streaming response (NDJSON format)
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullResponse = '';
@@ -138,15 +140,18 @@ function PureMultimodalInput({
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
+            // Add the full assistant message to the messages array
             setMessages((prevMessages) => {
               const updatedMessages = [...prevMessages];
               const lastMessage = updatedMessages[updatedMessages.length - 1];
               if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
+                // Update the existing assistant message with the full content
                 updatedMessages[updatedMessages.length - 1] = {
                   ...lastMessage,
                   content: fullResponse,
                 };
               } else {
+                // Add a new assistant message
                 updatedMessages.push({
                   role: 'assistant',
                   content: fullResponse,
@@ -159,6 +164,7 @@ function PureMultimodalInput({
             break;
           }
 
+          // Decode the chunk and split into lines (NDJSON format)
           const chunkText = decoder.decode(value, { stream: true });
           const lines = chunkText.split('\n').filter(line => line.trim() !== '');
 
@@ -170,16 +176,19 @@ function PureMultimodalInput({
 
               fullResponse += text;
 
+              // Update the UI incrementally by updating the last assistant message
               setMessages((prevMessages) => {
                 const updatedMessages = [...prevMessages];
                 const lastMessage = updatedMessages[updatedMessages.length - 1];
 
                 if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
+                  // Update the existing assistant message
                   updatedMessages[updatedMessages.length - 1] = {
                     ...lastMessage,
                     content: fullResponse,
                   };
                 } else {
+                  // Add a new assistant message
                   updatedMessages.push({
                     role: 'assistant',
                     content: fullResponse,
@@ -218,101 +227,18 @@ function PureMultimodalInput({
 
     sendMessage(message);
     setInput('');
-    setAttachments([]);
     setLocalStorageInput('');
     resetHeight();
 
     if (width && width > 768) {
       textareaRef.current?.focus();
     }
-  }, [input, sendMessage, setInput, setAttachments, setLocalStorageInput, width, chatId]);
-
-  const uploadFile = async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const response = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const { url, pathname, contentType } = data;
-
-        return {
-          url,
-          name: pathname,
-          contentType: contentType,
-        };
-      }
-      const { error } = await response.json();
-      toast.error(error);
-    } catch (error) {
-      toast.error('Failed to upload file, please try again!');
-    }
-  };
-
-  const handleFileChange = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files || []);
-
-      setUploadQueue(files.map((file) => file.name));
-
-      try {
-        const uploadPromises = files.map((file) => uploadFile(file));
-        const uploadedAttachments = await Promise.all(uploadPromises);
-        const successfullyUploadedAttachments = uploadedAttachments.filter(
-          (attachment) => attachment !== undefined,
-        ) as Attachment[]; // Type assertion since uploadFile matches Attachment
-
-        setAttachments((currentAttachments) => [
-          ...currentAttachments,
-          ...successfullyUploadedAttachments,
-        ]);
-      } catch (error) {
-        console.error('Error uploading files:', error);
-      } finally {
-        setUploadQueue([]);
-      }
-    },
-    [setAttachments],
-  );
+  }, [input, sendMessage, setInput, setLocalStorageInput, width, chatId]);
 
   return (
     <div className="relative w-full flex flex-col gap-4">
-      {messages.length === 0 && attachments.length === 0 && uploadQueue.length === 0 && (
+      {messages.length === 0 && (
         <SuggestedActions sendMessage={sendMessage} chatId={chatId} />
-      )}
-
-      <input
-        type="file"
-        className="fixed -top-4 -left-4 size-0.5 opacity-0 pointer-events-none"
-        ref={fileInputRef}
-        multiple
-        onChange={handleFileChange}
-        tabIndex={-1}
-      />
-
-      {(attachments.length > 0 || uploadQueue.length > 0) && (
-        <div className="flex flex-row gap-2 overflow-x-scroll items-end">
-          {attachments.map((attachment) => (
-            <PreviewAttachment key={attachment.url} attachment={attachment} />
-          ))}
-
-          {uploadQueue.map((filename) => (
-            <PreviewAttachment
-              key={filename}
-              attachment={{
-                url: '',
-                name: filename,
-                contentType: '',
-              }}
-              isUploading={true}
-            />
-          ))}
-        </div>
       )}
 
       <Textarea
@@ -339,10 +265,6 @@ function PureMultimodalInput({
         }}
       />
 
-      <div className="absolute bottom-0 p-2 w-fit flex flex-row justify-start">
-        <AttachmentsButton fileInputRef={fileInputRef} isLoading={isLoading} />
-      </div>
-
       <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
         {isLoading ? (
           <StopButton stop={stop} setMessages={setMessages} />
@@ -350,7 +272,6 @@ function PureMultimodalInput({
           <SendButton
             input={input}
             submitForm={submitForm}
-            uploadQueue={uploadQueue}
           />
         )}
       </div>
@@ -361,51 +282,10 @@ function PureMultimodalInput({
 export const MultimodalInput = memo(PureMultimodalInput, (prevProps, nextProps) => {
   if (prevProps.input !== nextProps.input) return false;
   if (prevProps.isLoading !== nextProps.isLoading) return false;
-  if (!equal(prevProps.attachments, nextProps.attachments)) return false;
   return true;
 });
 
-function AttachmentsButton({
-  fileInputRef,
-  isLoading,
-}: {
-  fileInputRef: React.RefObject<HTMLInputElement>;
-  isLoading: boolean;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      disabled={isLoading}
-      onClick={() => fileInputRef.current?.click()}
-    >
-      <PaperclipIcon size={16} />
-    </Button>
-  );
-}
-
-function SendButton({
-  input,
-  submitForm,
-  uploadQueue,
-}: {
-  input: string;
-  submitForm: () => void;
-  uploadQueue: Array<string>;
-}) {
-  return (
-    <Button
-      variant="default"
-      size="icon"
-      disabled={!input.trim() && uploadQueue.length === 0}
-      onClick={submitForm}
-    >
-      <ArrowUpIcon size={16} />
-    </Button>
-  );
-}
-
-function StopButton({
+function PureStopButton({
   stop,
   setMessages,
 }: {
@@ -414,17 +294,42 @@ function StopButton({
 }) {
   return (
     <Button
-      variant="default"
-      size="icon"
-      onClick={() => {
+      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
+      onClick={(event) => {
+        event.preventDefault();
         stop();
-        setMessages((prevMessages) => [
-          ...prevMessages,
-          { role: 'assistant', content: 'Stopped by user.', id: `${Date.now()}-${Math.random()}` } as Message,
-        ]);
+        setMessages((messages) => messages);
       }}
     >
-      <StopIcon size={16} />
+      <StopIcon size={14} />
     </Button>
   );
 }
+
+const StopButton = memo(PureStopButton);
+
+function PureSendButton({
+  submitForm,
+  input,
+}: {
+  submitForm: () => void;
+  input: string;
+}) {
+  return (
+    <Button
+      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
+      onClick={(event) => {
+        event.preventDefault();
+        submitForm();
+      }}
+      disabled={input.length === 0}
+    >
+      <ArrowUpIcon size={14} />
+    </Button>
+  );
+}
+
+const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
+  if (prevProps.input !== nextProps.input) return false;
+  return true;
+});
