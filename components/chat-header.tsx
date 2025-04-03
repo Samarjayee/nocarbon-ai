@@ -66,6 +66,18 @@ function PureChatHeader({
           className="order-1 md:order-3"
         />
       )}
+<a
+  href="https://nocarbon.uk"
+  target="_blank"
+  rel="noopener noreferrer"
+  className="flex items-center md:flex order-4 md:ml-auto"
+>
+  <img
+    src="/NoCarbon-Uk-green.svg"
+    alt="NoCarbon AI Logo"
+    className="h-6 w-auto"
+  />
+</a>
     </header>
   );
 }
