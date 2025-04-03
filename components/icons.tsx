@@ -1132,7 +1132,7 @@ export function NoCarbonLogo({ size = 24 }: { size?: number }) {
       {/* Replace the following with your actual SVG paths for the NoCarbon logo */}
       <circle cx="32" cy="32" r="32" fill="#000" />
       <text x="32" y="42" fontSize="24" textAnchor="middle" fill="#FFF" fontFamily="Arial">
-        NC
+        NCAI
       </text>
     </svg>
   );
