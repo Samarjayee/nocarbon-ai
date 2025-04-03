@@ -75,7 +75,7 @@ function PureChatHeader({
   <img
     src="/NoCarbon-Uk-green.svg"
     alt="NoCarbon AI Logo"
-    style={{ height: '50px', width: 'auto' }}
+    style={{ height: '150px', width: 'auto' }}
   />
 </a>
     </header>
