@@ -1,3 +1,5 @@
+import Image from 'next/image';
+
 export const BotIcon = () => {
   return (
     <svg
@@ -1120,20 +1122,13 @@ export const FullscreenIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
-export function NoCarbonLogo({ size = 24 }: { size?: number }) {
+export function NoCarbonLogo({ size = 40 }: { size?: number }) {
   return (
-    <svg
+    <Image
+      src="https://raw.githubusercontent.com/Samarjayee/nocarbon-ai/1ea55e1c1c9cb9c2ffd8dc2c7db63d54f3d48686/public/NoCarbon-Uk-green.svg"
+      alt="NoCarbon Logo"
+      width={size * 3} // Adjust ratios if needed
       height={size}
-      width={size}
-      viewBox="0 0 64 64" // Adjust the viewBox based on your actual logo design
-      fill="currentColor"
-      xmlns="https://raw.githubusercontent.com/Samarjayee/nocarbon-ai/1ea55e1c1c9cb9c2ffd8dc2c7db63d54f3d48686/public/NoCarbon-Uk-green.svg"
-    >
-      {/* Replace the following with your actual SVG paths for the NoCarbon logo */}
-      <circle cx="32" cy="32" r="32" fill="#000" />
-      <text x="32" y="42" fontSize="24" textAnchor="middle" fill="#FFF" fontFamily="Arial">
-        NCAI
-      </text>
-    </svg>
+    />
   );
 };
