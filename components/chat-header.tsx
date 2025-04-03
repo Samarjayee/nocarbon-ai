@@ -12,6 +12,7 @@ import { useSidebar } from './ui/sidebar';
 import { memo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { VisibilityType, VisibilitySelector } from './visibility-selector';
+import { NoCarbonLogo } from '@/components/icons';
 
 function PureChatHeader({
   chatId,
@@ -66,6 +67,14 @@ function PureChatHeader({
           className="order-1 md:order-3"
         />
       )}
+      <a
+  href="https://nocarbon.uk"
+  target="_blank"
+  rel="noopener noreferrer"
+  className="flex items-center md:flex"
+>
+  <NoCarbonLogo size={24} />
+</a>
     </header>
   );
 }
