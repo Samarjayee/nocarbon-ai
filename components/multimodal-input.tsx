@@ -14,10 +14,11 @@ import {
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
-import { ArrowUpIcon, StopIcon } from './icons';
+import { ArrowUpIcon, StopIcon, CrossIcon, FileIcon } from './icons';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { SuggestedActions } from './suggested-actions';
+import { FileAttachmentMenu } from './file-attachment-menu';
 import equal from 'fast-deep-equal';
 
 type Message = {
@@ -32,6 +33,16 @@ type CreateMessage = {
 };
 
 type SendMessageFunction = (message: Message | CreateMessage) => Promise<string | null | undefined>;
+
+interface AttachmentFile {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  from: 'temp' | 'drive';
+  content?: File;
+  driveId?: string;
+}
 
 function PureMultimodalInput({
   chatId,
@@ -82,6 +93,7 @@ function PureMultimodalInput({
   };
 
   const [localStorageInput, setLocalStorageInput] = useLocalStorage('input', '');
+  const [attachment, setAttachment] = useState<AttachmentFile | null>(null);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -101,15 +113,49 @@ function PureMultimodalInput({
     adjustHeight();
   };
 
+  const handleFileSelect = (file: File | null) => {
+    if (file) {
+      // Create an attachment object
+      setAttachment({
+        id: `temp-${Date.now()}`,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        from: 'temp',
+        content: file
+      });
+      toast.success(`File ${file.name} attached`);
+    }
+  };
+
+  const handleDriveSelect = () => {
+    // Open NoCarbon Drive in a new tab
+    // We'll implement user selection in a future version
+    window.open('https://drive-module-deployed.vercel.app', '_blank');
+    toast.info('NoCarbon Drive opened. Select a file to reference.');
+  };
+
+  const removeAttachment = () => {
+    setAttachment(null);
+  };
+
   const sendMessage: SendMessageFunction = useCallback(
     async (message: Message | CreateMessage) => {
       try {
         // Add the user's message to the chat interface
         const userMessageId = `${Date.now()}-${Math.random()}`;
         console.log('Query sent from frontend:', message.content);
+        
+        // Add attachment information to the message if present
+        let messageToSend = { ...message };
+        if (attachment) {
+          messageToSend.content = `${message.content}\n\nAttached file: ${attachment.name}`;
+          // Here we would handle the file upload to the backend
+          // For now, we're just mentioning it in the message
+        }
         setMessages((prevMessages) => [
           ...prevMessages,
-          { ...message, id: userMessageId } as Message,
+          { ...messageToSend, id: userMessageId } as Message,
         ]);
 
         // Send the query to the backend API, which proxies to the Lambda
@@ -119,7 +165,7 @@ function PureMultimodalInput({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id: chatId,
-            messages: [...messages, message],
+            messages: [...messages, messageToSend],
           }),
         });
 
@@ -214,7 +260,7 @@ function PureMultimodalInput({
         return null;
       }
     },
-    [chatId, messages, setMessages]
+    [chatId, messages, setMessages, attachment]
   );
 
   const submitForm = useCallback(() => {
@@ -229,16 +275,35 @@ function PureMultimodalInput({
     setInput('');
     setLocalStorageInput('');
     resetHeight();
+    
+    // Clear attachment after sending
+    setAttachment(null);
 
     if (width && width > 768) {
       textareaRef.current?.focus();
     }
-  }, [input, sendMessage, setInput, setLocalStorageInput, width, chatId]);
+  }, [input, sendMessage, setInput, setLocalStorageInput, width, chatId, setAttachment]);
 
   return (
     <div className="relative w-full flex flex-col gap-4">
       {messages.length === 0 && (
         <SuggestedActions sendMessage={sendMessage} chatId={chatId} />
+      )}
+
+      {/* Display attached file if present */}
+      {attachment && (
+        <div className="flex items-center gap-2 p-2 bg-green-100 dark:bg-green-900/20 rounded-md">
+          <FileIcon size={14} />
+          <span className="text-sm flex-1 truncate">{attachment.name}</span>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="p-1 h-6 w-6 rounded-full" 
+            onClick={removeAttachment}
+          >
+            <CrossIcon size={10} />
+          </Button>
+        </div>
       )}
 
       <Textarea
@@ -265,7 +330,11 @@ function PureMultimodalInput({
         }}
       />
 
-      <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
+      <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end items-center gap-2">
+        <FileAttachmentMenu 
+          onFileSelect={handleFileSelect} 
+          onDriveSelect={handleDriveSelect} 
+        />
         {isLoading ? (
           <StopButton stop={stop} setMessages={setMessages} />
         ) : (
