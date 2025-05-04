@@ -34,6 +34,7 @@ export const {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.email = user.email;
       }
 
       return token;
@@ -47,6 +48,7 @@ export const {
     }) {
       if (session.user) {
         session.user.id = token.id as string;
+        session.user.email = token.email as string;
       }
 
       return session;

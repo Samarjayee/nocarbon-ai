@@ -75,7 +75,11 @@ export async function POST(req: NextRequest) {
     const response = await fetch(lambdaUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: latestMessage.content, conversationId: id }),
+      body: JSON.stringify({ 
+        input: latestMessage.content, 
+        conversationId: id,
+        userEmail: session.user.email // Include user email in the payload
+      }),
     });
 
     if (!response.ok) {
