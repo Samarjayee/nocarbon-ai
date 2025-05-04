@@ -3,7 +3,7 @@
 import type { User } from 'next-auth';
 import { useRouter } from 'next/navigation';
 
-import { PlusIcon } from '@/components/icons';
+import { PlusIcon, FileIcon } from '@/components/icons';
 import { SidebarHistory } from '@/components/sidebar-history';
 import { SidebarUserNav } from '@/components/sidebar-user-nav';
 import { Button } from '@/components/ui/button';
@@ -37,23 +37,50 @@ export function AppSidebar({ user }: { user: User | undefined }) {
             >
               <NoCarbonLogo size={40} />
             </Link>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  className="p-2 h-fit"
-                  onClick={() => {
-                    setOpenMobile(false);
-                    router.push('/');
-                    router.refresh();
-                  }}
-                >
-                  <PlusIcon />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end">New Chat</TooltipContent>
-            </Tooltip>
+            <div className="flex gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    className="p-2 h-fit"
+                    onClick={() => {
+                      // Check if user is authenticated
+                      if (user && user.email) {
+                        // Generate JWT-like token with email
+                        const encodedEmail = encodeURIComponent(user.email);
+                        
+                        // Open Drive module with email as parameter
+                        window.open(`https://drive-module-deployed.vercel.app?auth=${encodedEmail}`, '_blank');
+                      } else {
+                        // No user is logged in, just open Drive module
+                        window.open('https://drive-module-deployed.vercel.app', '_blank');
+                      }
+                    }}
+                  >
+                    <FileIcon size={16} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="end">My Files</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    className="p-2 h-fit"
+                    onClick={() => {
+                      setOpenMobile(false);
+                      router.push('/');
+                      router.refresh();
+                    }}
+                  >
+                    <PlusIcon />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="end">New Chat</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
         </SidebarMenu>
       </SidebarHeader>
