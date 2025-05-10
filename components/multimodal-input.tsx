@@ -14,35 +14,47 @@ import {
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
-import { ArrowUpIcon, StopIcon, CrossIcon, FileIcon } from './icons';
-import { Button } from './ui/button';
-import { Textarea } from './ui/textarea';
-import { SuggestedActions } from './suggested-actions';
-import { FileAttachmentMenu } from './file-attachment-menu';
-import equal from 'fast-deep-equal';
+import { ArrowUpIcon, StopIcon, CrossIcon, FileIcon } from './icons'; // Assuming './icons' is correct
+import { Button } from './ui/button'; // Assuming './ui/button' is correct
+import { Textarea } from './ui/textarea'; // Assuming './ui/textarea' is correct
+import { SuggestedActions } from './suggested-actions'; // Assuming './suggested-actions' is correct
+import { FileAttachmentMenu } from './file-attachment-menu'; // Assuming './file-attachment-menu' is correct
 
+// Types (as you defined them)
 type Message = {
   id?: string;
   role: 'user' | 'assistant' | 'data' | 'system';
   content: string;
 };
 
-type CreateMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-};
-
-type SendMessageFunction = (message: Message | CreateMessage) => Promise<string | null | undefined>;
-
 interface AttachmentFile {
   id: string;
-  name: string;
-  type: string;
+  name: string;       // Filename
+  type: string;       // MIME type (e.g., "application/pdf")
   size: number;
   from: 'temp' | 'drive';
-  content?: File;
+  content?: File;     // Original File object (optional to keep)
+  base64Data?: string; // To store the Base64 encoded content
   driveId?: string;
 }
+
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64String = result.split(',')[1];
+      if (base64String) {
+        resolve(base64String);
+      } else {
+        reject(new Error('Failed to extract Base64 string from file reader result.'));
+      }
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
 
 function PureMultimodalInput({
   chatId,
@@ -53,9 +65,7 @@ function PureMultimodalInput({
   messages,
   setMessages,
   className,
-  handleSubmit, // Add handleSubmit to props
-  append, // Add append to props
-  ...props // Allow extra props like attachments, setAttachments
+  ...props
 }: {
   chatId: string;
   input: string;
@@ -65,44 +75,44 @@ function PureMultimodalInput({
   messages: Array<Message>;
   setMessages: Dispatch<SetStateAction<Array<Message>>>;
   className?: string;
-  handleSubmit?: (event?: { preventDefault?: () => void }, chatRequestOptions?: any) => void; // Type for handleSubmit
-  append?: (message: Message | CreateMessage, chatRequestOptions?: any) => void; // Type for append
-  [key: string]: any; // Allow extra props
+  [key: string]: any;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
+  const [localStorageInput, setLocalStorageInput] = useLocalStorage('input', '');
+  const [attachment, setAttachment] = useState<AttachmentFile | null>(null);
+
+  const adjustHeight = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight + 2}px`;
+    }
+  }, []);
 
   useEffect(() => {
     if (textareaRef.current) {
       adjustHeight();
     }
-  }, []);
+  }, [adjustHeight]);
 
-  const adjustHeight = () => {
+  const resetHeight = useCallback(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight + 2}px`;
+      adjustHeight();
     }
-  };
-
-  const resetHeight = () => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = '98px';
-    }
-  };
-
-  const [localStorageInput, setLocalStorageInput] = useLocalStorage('input', '');
-  const [attachment, setAttachment] = useState<AttachmentFile | null>(null);
+  }, [adjustHeight]);
 
   useEffect(() => {
     if (textareaRef.current) {
       const domValue = textareaRef.current.value;
       const finalValue = domValue || localStorageInput || '';
-      setInput(finalValue);
+      if (input !== finalValue) {
+        setInput(finalValue);
+      }
       adjustHeight();
     }
-  }, [localStorageInput, setInput]); // Add dependencies to fix ESLint warning
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localStorageInput, adjustHeight]);
 
   useEffect(() => {
     setLocalStorageInput(input);
@@ -113,149 +123,188 @@ function PureMultimodalInput({
     adjustHeight();
   };
 
-  const handleFileSelect = (file: File | null) => {
+  const handleFileSelect = async (file: File | null) => {
     if (file) {
-      // Create an attachment object
-      setAttachment({
-        id: `temp-${Date.now()}`,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        from: 'temp',
-        content: file
-      });
-      toast.success(`File ${file.name} attached`);
+      try {
+        toast.info(`Processing file: ${file.name}...`);
+        const base64DataValue = await fileToBase64(file);
+        setAttachment({
+          id: `temp-${Date.now()}`,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          from: 'temp',
+          content: file,
+          base64Data: base64DataValue
+        });
+        toast.success(`File "${file.name}" attached and ready.`);
+      } catch (error) {
+        console.error("Error converting file to Base64 or setting attachment:", error);
+        toast.error(`Failed to process file "${file.name}". Please try again.`);
+        setAttachment(null);
+      }
     }
   };
 
   const handleDriveSelect = () => {
-    // Open NoCarbon Drive in a new tab
-    // We'll implement user selection in a future version
     window.open('https://drive-module-deployed.vercel.app', '_blank');
-    toast.info('NoCarbon Drive opened. Select a file to reference.');
+    toast.info('NoCarbon Drive opened. After selecting, you may need to re-attach if not automatically handled.');
   };
 
   const removeAttachment = () => {
     setAttachment(null);
+    toast.info("Attachment removed.");
   };
 
-  const sendMessage: SendMessageFunction = useCallback(
-    async (message: Message | CreateMessage) => {
-      try {
-        // Add the user's message to the chat interface
-        const userMessageId = `${Date.now()}-${Math.random()}`;
-        console.log('Query sent from frontend:', message.content);
-        
-        // Add attachment information to the message if present
-        let messageToSend = { ...message };
-        if (attachment) {
-          messageToSend.content = `${message.content}\n\nAttached file: ${attachment.name}`;
-          // Here we would handle the file upload to the backend
-          // For now, we're just mentioning it in the message
-        }
-        setMessages((prevMessages) => [
-          ...prevMessages,
-          { ...messageToSend, id: userMessageId } as Message,
-        ]);
+  const sendMessage = useCallback(
+    async (message: Message | string) => {
+      const messageContent = typeof message === 'string' ? message : message.content;
+      const userMessageId = `user-${Date.now()}-${Math.random()}`;
+      // Log the content that will be displayed in UI and sent as 'input' via route.ts
+      console.log('User message content for UI and Lambda "input":', messageContent);
 
-        // Send the query to the backend API, which proxies to the Lambda
-        console.log('Sending request to /api/chat with chatId:', chatId);
+      const newUserMessage: Message = {
+        id: userMessageId,
+        role: 'user',
+        content: messageContent, // This now includes "Attached: filename.pdf" if no other text
+      };
+
+      setMessages((prevMessages) => [...prevMessages, newUserMessage]);
+
+      const payloadForApiChat: {
+        id: string;
+        messages: Array<Message>;
+        attachment?: {
+          filename: string;
+          mime_type: string;
+          data: string;
+        };
+      } = {
+        id: chatId,
+        messages: [...messages, newUserMessage],
+      };
+
+      if (attachment && attachment.base64Data) {
+        payloadForApiChat.attachment = {
+          filename: attachment.name,
+          mime_type: attachment.type,
+          data: attachment.base64Data,
+        };
+        console.log('Attachment prepared for sending:', payloadForApiChat.attachment.filename);
+      } else if (attachment) {
+        console.warn('Attachment object exists but base64Data is missing. Attachment will not be sent.');
+      }
+
+      try {
+        console.log(
+          'Sending request to /api/chat with payload:',
+          JSON.stringify(payloadForApiChat, (key, value) =>
+            key === 'data' && typeof value === 'string' && value.length > 30
+              ? value.substring(0, 30) + "...[truncated]"
+              : value
+          )
+        );
+
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: chatId,
-            messages: [...messages, messageToSend],
-          }),
+          body: JSON.stringify(payloadForApiChat),
         });
 
         if (!response.ok) {
-          throw new Error(`Backend request failed with status ${response.status}`);
+          const errorText = await response.text();
+          console.error('Backend /api/chat request failed:', response.status, errorText);
+          throw new Error(`Backend request failed with status ${response.status}: ${errorText}`);
         }
 
         if (!response.body) {
-          throw new Error('No response body to stream');
+          throw new Error('No response body to stream from /api/chat');
         }
 
-        // Handle the streaming response (NDJSON format)
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let fullResponse = '';
-        let assistantMessageId: string | null = null;
+        let fullAssistantResponse = '';
+        let currentAssistantMessageId: string | null = null;
+        let assistantMessagePlaceholderAdded = false;
+        let buffer = '';
 
+        // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            // Add the full assistant message to the messages array
-            setMessages((prevMessages) => {
-              const updatedMessages = [...prevMessages];
-              const lastMessage = updatedMessages[updatedMessages.length - 1];
-              if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
-                // Update the existing assistant message with the full content
-                updatedMessages[updatedMessages.length - 1] = {
-                  ...lastMessage,
-                  content: fullResponse,
-                };
-              } else {
-                // Add a new assistant message
-                updatedMessages.push({
-                  role: 'assistant',
-                  content: fullResponse,
-                  id: assistantMessageId || `${Date.now()}-${Math.random()}`,
-                });
+            if (buffer.trim()) {
+              try {
+                const chunkData = JSON.parse(buffer.trim());
+                const textChunk = chunkData.result || '';
+                if (textChunk) fullAssistantResponse += textChunk;
+              } catch (e) {
+                console.error('Error parsing remaining final NDJSON buffer:', buffer.trim(), e);
               }
-              console.log('Response displayed on frontend:', fullResponse);
-              return updatedMessages;
-            });
+            }
+            if (currentAssistantMessageId && assistantMessagePlaceholderAdded) {
+                 setMessages((prevMessages) =>
+                    prevMessages.map((msg) =>
+                        msg.id === currentAssistantMessageId
+                        ? { ...msg, content: fullAssistantResponse }
+                        : msg
+                    )
+                );
+            }
+            console.log('Streaming finished. Full assistant response:', fullAssistantResponse);
             break;
           }
 
-          // Decode the chunk and split into lines (NDJSON format)
-          const chunkText = decoder.decode(value, { stream: true });
-          const lines = chunkText.split('\n').filter(line => line.trim() !== '');
+          buffer += decoder.decode(value, { stream: true });
+          let EOL_index;
 
-          for (const line of lines) {
-            try {
-              const chunkData = JSON.parse(line);
-              const text = chunkData.result || '';
-              assistantMessageId = chunkData.assistantMessageId || assistantMessageId;
+          while ((EOL_index = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.substring(0, EOL_index).trim();
+            buffer = buffer.substring(EOL_index + 1);
 
-              fullResponse += text;
-
-              // Update the UI incrementally by updating the last assistant message
-              setMessages((prevMessages) => {
-                const updatedMessages = [...prevMessages];
-                const lastMessage = updatedMessages[updatedMessages.length - 1];
-
-                if (lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
-                  // Update the existing assistant message
-                  updatedMessages[updatedMessages.length - 1] = {
-                    ...lastMessage,
-                    content: fullResponse,
-                  };
-                } else {
-                  // Add a new assistant message
-                  updatedMessages.push({
-                    role: 'assistant',
-                    content: fullResponse,
-                    id: assistantMessageId || `${Date.now()}-${Math.random()}`,
-                  });
+            if (line) {
+              try {
+                const chunkData = JSON.parse(line);
+                const textChunk = chunkData.result || '';
+                
+                if (!currentAssistantMessageId && chunkData.assistantMessageId) {
+                  currentAssistantMessageId = chunkData.assistantMessageId;
                 }
-                return updatedMessages;
-              });
-            } catch (e) {
-              console.error('Error parsing chunk:', e);
+                
+                if (textChunk) {
+                    fullAssistantResponse += textChunk;
+                    if (!assistantMessagePlaceholderAdded && currentAssistantMessageId) {
+                    setMessages((prevMessages) => [
+                        ...prevMessages,
+                        {
+                        role: 'assistant',
+                        content: fullAssistantResponse,
+                        id: currentAssistantMessageId,
+                        },
+                    ]);
+                    assistantMessagePlaceholderAdded = true;
+                    } else if (assistantMessagePlaceholderAdded && currentAssistantMessageId) {
+                    setMessages((prevMessages) =>
+                        prevMessages.map((msg) =>
+                        msg.id === currentAssistantMessageId
+                            ? { ...msg, content: fullAssistantResponse }
+                            : msg
+                        )
+                    );
+                    }
+                }
+              } catch (e) {
+                console.error('Error parsing stream chunk line:', line, e);
+              }
             }
           }
         }
-
         return userMessageId;
       } catch (error: any) {
-        console.error('Error processing query:', error.message);
-        toast.error('Failed to get response from server.');
+        console.error('Error sending message or processing stream:', error.message, error.stack);
+        toast.error(`Failed to get response: ${error.message}`);
         setMessages((prevMessages) => [
           ...prevMessages,
-          { role: 'assistant', content: 'Error: Unable to process your query.', id: `${Date.now()}-${Math.random()}` } as Message,
+          { role: 'assistant', content: `Error: ${error.message || 'Unable to process your query.'}`, id: `error-${Date.now()}` } as Message,
         ]);
         return null;
       }
@@ -264,42 +313,50 @@ function PureMultimodalInput({
   );
 
   const submitForm = useCallback(() => {
+    if (isLoading || (!input.trim() && !attachment)) {
+      if (isLoading) toast.error('Please wait for the current response to finish!');
+      if (!input.trim() && !attachment) toast.info('Please type a message or attach a file.');
+      return;
+    }
+
     window.history.replaceState({}, '', `/chat/${chatId}`);
+    
+    // CHANGED: Logic to set messageContentToSend
+    let messageContentToSend = input.trim();
+    if (!input.trim() && attachment && attachment.name) {
+      messageContentToSend = `Attached: ${attachment.name}`;
+      console.log(`No text input from user, using attachment name as message content for UI and Lambda input: "${messageContentToSend}"`);
+    }
+    // END OF CHANGE
 
-    const message: CreateMessage = {
-      role: 'user',
-      content: input,
-    };
+    sendMessage(messageContentToSend);
 
-    sendMessage(message);
     setInput('');
     setLocalStorageInput('');
     resetHeight();
-    
-    // Clear attachment after sending
     setAttachment(null);
 
-    if (width && width > 768) {
-      textareaRef.current?.focus();
+    if (width && width > 768 && textareaRef.current) {
+      textareaRef.current.focus();
     }
-  }, [input, sendMessage, setInput, setLocalStorageInput, width, chatId, setAttachment]);
+  }, [input, sendMessage, setInput, setLocalStorageInput, width, chatId, attachment, isLoading, resetHeight]);
 
   return (
     <div className="relative w-full flex flex-col gap-4">
-      {messages.length === 0 && (
+      {messages.length === 0 && !input && !attachment && (
         <SuggestedActions sendMessage={sendMessage} chatId={chatId} />
       )}
 
-      {/* Display attached file if present */}
       {attachment && (
-        <div className="flex items-center gap-2 p-2 bg-green-100 dark:bg-green-900/20 rounded-md">
-          <FileIcon size={14} />
-          <span className="text-sm flex-1 truncate">{attachment.name}</span>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="p-1 h-6 w-6 rounded-full" 
+        <div className="flex items-center gap-2 p-2 bg-green-100 dark:bg-green-900/20 rounded-md text-sm">
+          <FileIcon size={14} className="text-green-700 dark:text-green-400" />
+          <span className="flex-1 truncate text-green-800 dark:text-green-300">{attachment.name} ({Math.round(attachment.size / 1024)} KB)</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="p-1 h-6 w-6 rounded-full text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-800"
             onClick={removeAttachment}
+            aria-label="Remove attachment"
           >
             <CrossIcon size={10} />
           </Button>
@@ -308,7 +365,7 @@ function PureMultimodalInput({
 
       <Textarea
         ref={textareaRef}
-        placeholder="Send a message..."
+        placeholder="Send a message (or attach a file)..."
         value={input}
         onChange={handleInput}
         className={cx(
@@ -320,26 +377,22 @@ function PureMultimodalInput({
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-
-            if (isLoading) {
-              toast.error('Please wait for the response!');
-            } else {
-              submitForm();
-            }
+            submitForm();
           }
         }}
       />
 
       <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end items-center gap-2">
-        <FileAttachmentMenu 
-          onFileSelect={handleFileSelect} 
-          onDriveSelect={handleDriveSelect} 
+        <FileAttachmentMenu
+          onFileSelect={handleFileSelect}
+          onDriveSelect={handleDriveSelect}
         />
         {isLoading ? (
-          <StopButton stop={stop} setMessages={setMessages} />
+          <StopButton stop={stop} />
         ) : (
           <SendButton
             input={input}
+            attachment={attachment}
             submitForm={submitForm}
           />
         )}
@@ -348,57 +401,49 @@ function PureMultimodalInput({
   );
 }
 
-export const MultimodalInput = memo(PureMultimodalInput, (prevProps, nextProps) => {
-  if (prevProps.input !== nextProps.input) return false;
-  if (prevProps.isLoading !== nextProps.isLoading) return false;
-  return true;
-});
+export const MultimodalInput = memo(PureMultimodalInput);
 
-function PureStopButton({
-  stop,
-  setMessages,
-}: {
-  stop: () => void;
-  setMessages: Dispatch<SetStateAction<Array<Message>>>;
-}) {
+function PureStopButton({ stop }: { stop: () => void; }) {
   return (
     <Button
+      aria-label="Stop generating"
       className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
       onClick={(event) => {
         event.preventDefault();
         stop();
-        setMessages((messages) => messages);
       }}
     >
       <StopIcon size={14} />
     </Button>
   );
 }
-
 const StopButton = memo(PureStopButton);
 
 function PureSendButton({
   submitForm,
   input,
+  attachment,
 }: {
   submitForm: () => void;
   input: string;
+  attachment: AttachmentFile | null;
 }) {
   return (
     <Button
+      aria-label="Send message"
       className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
       onClick={(event) => {
         event.preventDefault();
         submitForm();
       }}
-      disabled={input.length === 0}
+      disabled={!input.trim() && !attachment}
     >
       <ArrowUpIcon size={14} />
     </Button>
   );
 }
-
 const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
   if (prevProps.input !== nextProps.input) return false;
+  if (prevProps.attachment !== nextProps.attachment) return false;
   return true;
 });
