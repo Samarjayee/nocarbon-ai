@@ -43,7 +43,7 @@ type LambdaPayload = {
   attachment?: Attachment;
 };
 
-export const maxDuration = 60;
+export const maxDuration = 3600;
 
 export async function POST(req: NextRequest) {
   try {
