@@ -140,13 +140,18 @@ export async function POST(req: NextRequest) {
 
     const resultFromLambda = await responseFromLambda.json();
     console.log('Lambda response:', resultFromLambda);
-    const lambdaResponseText = resultFromLambda.response || 'Error: No response content from Lambda';
+    
+    // Construct message with download link if present
+    let messageContent = resultFromLambda.response || 'Error: No response content from Lambda';
+    if (resultFromLambda.downloadLink) {
+      messageContent = `${messageContent}\n\n[Click here to download](${resultFromLambda.downloadLink})`;
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
         const assistantMessageId = generateUUID();
         let fullResponse = '';
-        const words = lambdaResponseText.split(' ');
+        const words = messageContent.split(' ');
         for (const word of words) {
           fullResponse += word + ' ';
           const chunk = JSON.stringify({
@@ -157,6 +162,10 @@ export async function POST(req: NextRequest) {
           controller.enqueue(new TextEncoder().encode(chunk));
           await new Promise(resolve => setTimeout(resolve, 50));
         }
+        
+        // Add this before streaming starts
+        console.log('Formatted response for streaming:', fullResponse.trim());
+
         await saveMessages({
           messages: [
             {
@@ -170,11 +179,10 @@ export async function POST(req: NextRequest) {
         });
         console.log('Saved assistant message with ID:', assistantMessageId);
         controller.close();
-      },
+      }
     });
 
     return new Response(stream, {
-      status: 200,
       headers: {
         'Content-Type': 'application/x-ndjson',
         'Access-Control-Allow-Origin': '*',

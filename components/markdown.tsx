@@ -1,7 +1,9 @@
 import Link from 'next/link';
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import DOMPurify from 'isomorphic-dompurify';
 import { CodeBlock } from './code-block';
 
 const components: Partial<Components> = {
@@ -35,13 +37,25 @@ const components: Partial<Components> = {
       </span>
     );
   },
-  a: ({ node, children, ...props }) => {
-    return (
-      // @ts-expect-error
-      <Link
-        className="text-blue-500 hover:underline"
+  // Custom component to handle both markdown and HTML anchor tags
+  a: ({ node, children, href, ...props }) => {
+    const sanitizedHref = DOMPurify.sanitize(href || '');
+    const isExternal = sanitizedHref.startsWith('http');
+
+    return isExternal ? (
+      <a
+        href={sanitizedHref}
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:underline"
+        {...props}
+      >
+        {children}
+      </a>
+    ) : (
+      <Link
+        href={sanitizedHref}
+        className="text-blue-600 hover:underline"
         {...props}
       >
         {children}
@@ -92,17 +106,23 @@ const components: Partial<Components> = {
   },
 };
 
-const remarkPlugins = [remarkGfm];
-
-const NonMemoizedMarkdown = ({ children }: { children: string }) => {
-  return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-      {children}
-    </ReactMarkdown>
-  );
-};
-
 export const Markdown = memo(
-  NonMemoizedMarkdown,
+  ({ children }: { children: string }) => {
+    // Sanitize the entire content
+    const sanitizedContent = DOMPurify.sanitize(children);
+
+    return (
+      <ReactMarkdown
+        components={components}
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]} // Enable HTML parsing
+        className="prose dark:prose-invert max-w-none"
+      >
+        {sanitizedContent}
+      </ReactMarkdown>
+    );
+  },
   (prevProps, nextProps) => prevProps.children === nextProps.children,
 );
+
+Markdown.displayName = 'Markdown';
