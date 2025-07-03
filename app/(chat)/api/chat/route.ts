@@ -1,16 +1,16 @@
 // app/api/chat/route.ts
 import { NextRequest } from 'next/server';
-import { auth } from '@/app/(auth)/auth'; // Assuming this path is correct for your auth.ts
+import { auth } from '@/app/(auth)/auth';
 import {
   deleteChatById,
   getChatById,
   saveChat,
   saveMessages,
-} from '@/lib/db/queries'; // Assuming these paths are correct
-import { generateUUID } from '@/lib/utils'; // Assuming this path is correct
-import { generateTitleFromUserMessage } from '../../actions'; // Assuming this path is correct
+} from '@/lib/db/queries';
+import { generateUUID } from '@/lib/utils';
+import { generateTitleFromUserMessage } from '../../actions';
 
-// Define the Message type (as you had it)
+// Define the Message type
 type Message = {
   id?: string;
   role: 'user' | 'assistant' | 'data' | 'system';
@@ -19,27 +19,25 @@ type Message = {
   chatId?: string;
 };
 
-// ADDED: Define the Attachment type that this route expects from the client UI
-// and will forward to the Lambda. This matches the Lambda's expectation.
+// Define the Attachment type
 type Attachment = {
   filename: string;
-  mime_type: string; // snake_case, as expected by the Python backend
-  data: string;      // Base64 encoded file content
+  mime_type: string;
+  data: string;
 };
 
-// ADDED: Define the structure of the JSON body expected from the client UI
-// when it calls this /api/chat route
+// Define the structure of the request body from the client
 type ClientRequestBody = {
-  id: string; // This is the conversationId
+  id: string;
   messages: Array<Message>;
-  attachment?: Attachment; // Attachment is optional from the client UI
+  attachment?: Attachment;
 };
 
-// Define the structure of the payload to be sent to the Lambda
+// Define the structure of the payload for the Lambda
 type LambdaPayload = {
   input: string;
   conversationId: string;
-  userEmail?: string | null; // Match your session.user.email type
+  userEmail?: string | null;
   attachment?: Attachment;
 };
 
@@ -53,15 +51,11 @@ export async function POST(req: NextRequest) {
       throw new Error('LAMBDA_URL environment variable is not set');
     }
 
-    // ✨ **START: IP ADDRESS EXTRACTION**
-    // Get the user's real IP address from the request headers.
+    // Capture the real user's IP from the incoming request headers
     const userIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
     console.log(`Request received from User IP: ${userIp}`);
-    // ✨ **END: IP ADDRESS EXTRACTION**
 
-    // Get the full request body from the client UI
     const requestBodyFromClientUI: ClientRequestBody = await req.json();
-    // Destructure to get id (conversationId), messages, and the attachment object
     const { id, messages, attachment } = requestBodyFromClientUI;
 
     const session = await auth();
@@ -104,15 +98,13 @@ export async function POST(req: NextRequest) {
     });
     console.log('Saved user message with ID:', userMessageId);
 
-    // Construct the payload to send to the Lambda function
     const payloadForLambda: LambdaPayload = {
       input: latestMessage.content,
       conversationId: id,
-      userEmail: session.user.email, // Include user email
+      userEmail: session.user.email,
     };
 
     if (attachment) {
-      // If an attachment was received from the client UI, add it to the Lambda payload
       payloadForLambda.attachment = attachment;
     }
 
@@ -127,9 +119,9 @@ export async function POST(req: NextRequest) {
 
     const responseFromLambda = await fetch(lambdaUrl, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
-        // ✨ **ADD: Forward the real IP in a new, custom header**
+        // Forward the real user's IP in the custom 'X-User-IP' header
         'X-User-IP': userIp
       },
       body: JSON.stringify(payloadForLambda),
@@ -150,8 +142,7 @@ export async function POST(req: NextRequest) {
 
     const resultFromLambda = await responseFromLambda.json();
     console.log('Lambda response:', resultFromLambda);
-    
-    // Construct message with download link if present
+
     let messageContent = resultFromLambda.response || 'Error: No response content from Lambda';
     if (resultFromLambda.downloadLink) {
       messageContent = `${messageContent}\n\n[Click here to download](${resultFromLambda.downloadLink})`;
@@ -172,8 +163,7 @@ export async function POST(req: NextRequest) {
           controller.enqueue(new TextEncoder().encode(chunk));
           await new Promise(resolve => setTimeout(resolve, 50));
         }
-        
-        // Add this before streaming starts
+
         console.log('Formatted response for streaming:', fullResponse.trim());
 
         await saveMessages({
