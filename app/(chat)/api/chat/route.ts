@@ -53,6 +53,12 @@ export async function POST(req: NextRequest) {
       throw new Error('LAMBDA_URL environment variable is not set');
     }
 
+    // ✨ **START: IP ADDRESS EXTRACTION**
+    // Get the user's real IP address from the request headers.
+    const userIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
+    console.log(`Request received from User IP: ${userIp}`);
+    // ✨ **END: IP ADDRESS EXTRACTION**
+
     // Get the full request body from the client UI
     const requestBodyFromClientUI: ClientRequestBody = await req.json();
     // Destructure to get id (conversationId), messages, and the attachment object
@@ -121,7 +127,11 @@ export async function POST(req: NextRequest) {
 
     const responseFromLambda = await fetch(lambdaUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        // ✨ **ADD: Forward the real IP in a new, custom header**
+        'X-User-IP': userIp
+      },
       body: JSON.stringify(payloadForLambda),
     });
 
